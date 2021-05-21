@@ -116,17 +116,20 @@ jobs:
         du -h --max-depth=1 ./ --exclude=build_dir --exclude=bin
         du -h --max-depth=1 ./build_dir
         du -h --max-depth=1 ./bin
+        ls bin/targets/*/*/
 
     - name: 筛选固件
       id: organize
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-        # ls openwrt/bin/targets/*/*/ | grep armvirt >> BIN
-        # [ -s BIN ] && echo "BIN=$(cat BIN)" >> $GITHUB_ENV
         mkdir -p openwrt/firmware
         cp openwrt/.config  openwrt/firmware/config.txt
-        cp openwrt/bin/targets/*/*/*armvirt* openwrt/firmware
-        cp openwrt/bin/targets/*/*/sha256sums openwrt/firmware
+        find openwrt/bin/targets/*/*/ -maxdepth 1 \
+        -name "*combined*" \
+        -or -name "*sysupgrade*" \
+        -or -name "*armvirt*" \
+        -or -name "sha256sums" \
+        | xargs -i mv -f {} openwrt/firmware
         cd openwrt/firmware
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "::set-output name=status::success"
@@ -150,13 +153,14 @@ jobs:
       if: steps.compile.outputs.status == 'success' && !cancelled()
       with:
         name: OpenWrt_sysupgrade
-        path: openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*armvirt.*
+        path: openwrt/firmware/*armvirt*
 
     - name: 上传到奶牛快传
       if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
       run: |
         curl -fsSL git.io/file-transfer | sh
         ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
+        cp -v cowtransfer.log openwrt/firmware
         echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
         echo "::set-output name=url::$(cat cowtransfer.log | grep https | cut -f3 -d" ")"
 
@@ -165,5 +169,6 @@ jobs:
       run: |
         curl -fsSL git.io/file-transfer | sh
         ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
+        cp -v wetransfer.log openwrt/firmware
         echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
         echo "::set-output name=url::$(cat wetransfer.log | grep https | cut -f3 -d" ")"
