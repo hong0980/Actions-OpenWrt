@@ -201,7 +201,7 @@ jobs:
     - name: Cache 上传到 Release
       continue-on-error: true
       if: steps.fetch_cache.conclusion == 'success' || env.OUTPUT_RELEASE == 'true' && !cancelled()
-      uses: softprops/action-gh-release@v2.0.5
+      uses: softprops/action-gh-release@v2.0.6
       with:
         files: output/*
         token: ${{secrets.GITHUB_TOKEN}}
@@ -285,7 +285,7 @@ jobs:
 
     - name: Firmware 上传到 Release
       if: env.upload_firmware == 'true' && env.UPLOAD_RELEASE == 'true' && !cancelled()
-      uses: softprops/action-gh-release@v2.0.5
+      uses: softprops/action-gh-release@v2.0.6
       with:
         files: firmware/*
         token: ${{secrets.GITHUB_TOKEN}}
