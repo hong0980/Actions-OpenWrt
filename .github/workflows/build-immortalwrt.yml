@@ -20,7 +20,7 @@ on:
         default: 'openwrt-21.02'
         required: true
         type: choice
-        options: [ openwrt-21.02, openwrt-23.05, master, openwrt-18.06-k5.4, openwrt-18.06 ]
+        options: [ openwrt-21.02, openwrt-23.05, openwrt-24.10, master, openwrt-18.06-k5.4, openwrt-18.06 ]
 
       target:
         description: '选择要生成的机型：'
@@ -95,12 +95,12 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4.2.0
+      uses: actions/checkout@v4.2.2
 
-    - name: jlumbroso 整理空间
+    - name: jlumbroso 整理磁盘
       continue-on-error: true
       uses: jlumbroso/free-disk-space@main
-      if: env.FREE_DISK == 'free-disk-space' || env.FREE_DISK == 'plus'
+      if: env.FREE_DISK == 'plus' || env.FREE_DISK == 'free-disk-space'
       with:
         dotnet: true
         android: true
@@ -109,9 +109,9 @@ jobs:
         swap-storage: true
         large-packages: true
 
-    - name: losetup 整理空间
+    - name: losetup 整理磁盘
       continue-on-error: true
-      if: env.FREE_DISK == 'losetup' || env.FREE_DISK == 'plus'
+      if: env.FREE_DISK == 'plus' || env.FREE_DISK == 'losetup'
       run: |
         [ -f /mnt/swapfile ] && sudo swapoff -a && sudo rm -f /mnt/swapfile
         export ROOT_LOOP_BYTES=$((($(df --block-size=1024 --output=avail / | tail -1) - 1024*1024*7) * 1024))
@@ -200,7 +200,7 @@ jobs:
     - name: Cache 上传到 Release
       continue-on-error: true
       if: steps.fetch_cache.conclusion == 'success' || env.OUTPUT_RELEASE == 'true' && !cancelled()
-      uses: softprops/action-gh-release@v2.0.8
+      uses: softprops/action-gh-release@v2.0.9
       with:
         files: output/*
         token: ${{secrets.GITHUB_TOKEN}}
@@ -223,7 +223,7 @@ jobs:
       run: cd $REPO_FLODER && make -j$(nproc) || make -j1 V=s
 
     - name: 上传 Bin
-      uses: actions/upload-artifact@v4.4.0
+      uses: actions/upload-artifact@v4.4.3
       if: steps.organize.conclusion == 'success' && env.UPLOAD_BIN_DIR == 'true' && !cancelled()
       with:
         path: ${{env.REPO_FLODER}}/bin
@@ -254,14 +254,14 @@ jobs:
         echo "STRDATE=$(TZ=UTC-8 date +%Y-%m-%d)" >>$GITHUB_ENV
 
     - name: 上传 Packages
-      uses: actions/upload-artifact@v4.4.0
+      uses: actions/upload-artifact@v4.4.3
       if: env.upload_packages == 'true' && env.UPLOAD_PACKAGES == 'true' && !cancelled()
       with:
         path: firmware/*packages.tar.gz
         name: OpenWrt-${{env.TARGET_DEVICE}}-package
 
     - name: 上传 Firmware
-      uses: actions/upload-artifact@v4.4.0
+      uses: actions/upload-artifact@v4.4.3
       if: env.upload_firmware == 'true' && env.UPLOAD_SYSUPGRADE == 'true' && !cancelled()
       with:
         path: firmware/*${{env.FIRMWARE_TYPE}}*
@@ -284,7 +284,7 @@ jobs:
 
     - name: Firmware 上传到 Release
       if: env.upload_firmware == 'true' && env.UPLOAD_RELEASE == 'true' && !cancelled()
-      uses: softprops/action-gh-release@v2.0.8
+      uses: softprops/action-gh-release@v2.0.9
       with:
         files: firmware/*
         token: ${{secrets.GITHUB_TOKEN}}
