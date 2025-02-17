@@ -46,7 +46,7 @@ env:
 
 jobs:
   lean_openwrt:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
     name: coolsnowwolf-openwrt-${{github.event.inputs.target}}
 
@@ -97,7 +97,7 @@ jobs:
         export ROOT_LOOP_DEVNAME=$(sudo losetup -Pf --show /root.img)
         # 标记循环设备为物理卷
         sudo pvcreate -f $ROOT_LOOP_DEVNAME
-        
+
         # 转换分配给新文件系统的 /mnt 目录的空间大小为字节
         export MNT_LOOP_BYTES=$((($(df --block-size=1024 --output=avail /mnt | tail -1) - 1024*1024*1) * 1024))
         # 创建 /mnt 目录的卷
@@ -237,7 +237,7 @@ jobs:
         du -h --max-depth=1 ./build_dir
         du -h --max-depth=1 ./staging_dir
         du -h --max-depth=1 ./ --exclude=bin --exclude=build_dir --exclude=staging_dir --exclude=bin
-        ls bin/targets/*/*/
+        ls -lh bin/targets/*/*/
         sf=${CACHE_NAME%%-*}-${REPO_BRANCH#*-}-$(TZ=UTC-8 date +%m-%d)
         ARCH=`awk -F'"' '/ARCH_PACKAGES/{print $2}' .config`
         [[ $FIRMWARE_TYPE ]] && cp -v $(find bin/targets/ -type f -name "*${FIRMWARE_TYPE}*") ../firmware && \

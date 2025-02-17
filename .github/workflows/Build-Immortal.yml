@@ -1,7 +1,34 @@
-name: Build-Coolsnowwolf
+#=================================================
+# https://github.com/P3TERX/Actions-OpenWrt
+# Description: Build OpenWrt using GitHub Actions
+# Lisence: MIT
+# Author: P3TERX
+# Blog: https://p3terx.com
+#=================================================
+
+name: Build-ImmortalWrt
 on:
+  # push:
+  #   paths: [ immortalwrt_openwrt ]
+  # schedule: [ cron: 0 2 */7 * * ]
+  # watch:
+  #   types: started
   workflow_dispatch:
     inputs:
+      repo:
+        description: '选择仓库：'
+        default: 'ImmortalWrt'
+        required: true
+        type: choice
+        options: [ immortalwrt, openwrt ]
+
+      branch:
+        description: '选择的分支：'
+        default: 'openwrt-21.02'
+        required: true
+        type: choice
+        options: [ openwrt-21.02, openwrt-23.05, openwrt-24.10, master, openwrt-18.06-k5.4, openwrt-18.06 ]
+
       target:
         description: '选择要生成的机型：'
         default: 'x86_64'
@@ -42,8 +69,7 @@ on:
 
 env:
   TZ: Asia/Shanghai
-  REPO_FLODER: 'lede'
-  REPO_BRANCH: 'master'
+  REPO_FLODER: 'openwrt'
   UPLOAD_RELEASE: true
   UPLOAD_BIN_DIR: true
   UPLOAD_PACKAGES: true
@@ -52,28 +78,28 @@ env:
   UPLOAD_COWTRANSFER: true
 
 jobs:
-  lean_openwrt:
-    runs-on: ubuntu-22.04
+  immo-openwrt:
+    runs-on: ubuntu-latest
     if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
-    name: coolsnowwolf-openwrt-${{github.event.inputs.target}}
+    name: ${{github.event.inputs.repo}}-${{github.event.inputs.branch}}-${{github.event.inputs.target}}
 
     permissions:
       contents: write
 
     env:
       IP: ${{github.event.inputs.ip}}
+      REPO: ${{github.event.inputs.repo}}
       DEPENDS: ${{github.event.inputs.depends}}
       # VERSION: ${{github.event.inputs.version}}
       PARTSIZE: ${{github.event.inputs.partsize}}
+      REPO_BRANCH: ${{github.event.inputs.branch}}
       FREE_DISK: ${{github.event.inputs.free_disk}}
       TARGET_DEVICE: ${{github.event.inputs.target}}
-    #   TARGET_DEVICE: ${{matrix.target}}
+
     # strategy:
     #   fail-fast: false
     #   matrix:
-    #     target: ["x86_64", "r1-plus-lts"]
-    #     target: ["newifi-d2", "phicomm_k2p" ,"asus_rt-n16", "armvirt-64-default", "x86_64"]
-    #     target: ["newifi-d2", "x86_64", "r1-plus-lts", "phicomm_k2p", "armvirt-64-default", "asus_rt-n16"]
+    #     target: ["${{github.event.inputs.target}}"]
 
     steps:
     - name: Checkout
@@ -95,41 +121,23 @@ jobs:
       continue-on-error: true
       if: env.FREE_DISK == 'plus' || env.FREE_DISK == 'losetup'
       run: |
-        # 关闭 swap 分区并删除 swap 文件
         [ -f /mnt/swapfile ] && sudo swapoff -a && sudo rm -f /mnt/swapfile
         export ROOT_LOOP_BYTES=$((($(df --block-size=1024 --output=avail / | tail -1) - 1024*1024*7) * 1024))
-        # 创建根文件系统的卷
         sudo fallocate -l $ROOT_LOOP_BYTES /root.img
-        # 将根文件系统关联到一个未使用的循环设备
         export ROOT_LOOP_DEVNAME=$(sudo losetup -Pf --show /root.img)
-        # 标记循环设备为物理卷
         sudo pvcreate -f $ROOT_LOOP_DEVNAME
-        
-        # 转换分配给新文件系统的 /mnt 目录的空间大小为字节
         export MNT_LOOP_BYTES=$((($(df --block-size=1024 --output=avail /mnt | tail -1) - 1024*1024*1) * 1024))
-        # 创建 /mnt 目录的卷
         sudo fallocate -l $MNT_LOOP_BYTES /mnt/mnt.img
-        # 将 /mnt 目录关联到一个未使用的循环设备
         export MNT_LOOP_DEVNAME=$(sudo losetup -Pf --show /mnt/mnt.img)
-        # 标记循环设备为物理卷
         sudo pvcreate -f $MNT_LOOP_DEVNAME
-        # 创建卷组并添加根目录和 /mnt 目录的物理卷
         sudo vgcreate Actions $ROOT_LOOP_DEVNAME $MNT_LOOP_DEVNAME
-        # 在卷组中创建逻辑卷
         sudo lvcreate -n disk -l 100%FREE Actions
-        # 获取逻辑卷的设备名称
         export LV_DEVNAME=$(sudo lvscan | awk -F "'" '{print $2}')
-        # 在逻辑卷上创建 Btrfs 文件系统
         sudo mkfs.btrfs -L combinedisk $LV_DEVNAME
-        # 挂载逻辑卷到指定目录，并使用 Zstandard 压缩算法
         sudo mount -o compress=zstd $LV_DEVNAME $GITHUB_WORKSPACE
-        # 更改目录权限为 runner:runner 用户，确保执行者具有适当权限
         sudo chown -R runner:runner $GITHUB_WORKSPACE
-        # 创建临时目录（如果不存在）
         mkdir -m 0777 -p $GITHUB_WORKSPACE/tmp
-        # 将 /tmp 目录下的内容复制到临时目录中（如果发生错误，仍继续执行）
         sudo cp -rp /tmp/* $GITHUB_WORKSPACE/tmp || true
-        # 将临时目录绑定到 /tmp 目录
         sudo mount -B $GITHUB_WORKSPACE/tmp /tmp
 
     - name: 安装编译依赖
@@ -168,12 +176,12 @@ jobs:
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean ) &
         fi
-        sudo ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+        sudo -E timedatectl set-timezone "Asia/Shanghai"
 
     - name: 部署
       continue-on-error: true
-      run: wget -qO- git.io/lean_openwrt | bash
-      # run: wget -qO- is.gd/lean_openwrt | bash
+      run: wget -qO- git.io/J6IXO | bash
+      # run: wget -qO- is.gd/immortalwrt_openwrt | bash
 
     - name: Cache
       uses: stupidloud/cachewrtbuild@main
@@ -203,12 +211,11 @@ jobs:
       with:
         files: output/*
         token: ${{secrets.GITHUB_TOKEN}}
-        body: coolsnowwolf-Cache
-        tag_name: coolsnowwolf-Cache
-        name: ${{env.EMOJI}} coolsnowwolf-Cache ${{env.EMOJI}}
+        body: ${{env.REPO}}-Cache
+        tag_name: ${{env.REPO}}-Cache
+        name: ${{env.EMOJI}} ${{env.REPO}}-Cache ${{env.EMOJI}}
 
     - name: 下载软件包
-      continue-on-error: true
       run: |
         cd $REPO_FLODER
         make package/download -j$(nproc)
@@ -244,7 +251,7 @@ jobs:
         du -h --max-depth=1 ./build_dir
         du -h --max-depth=1 ./staging_dir
         du -h --max-depth=1 ./ --exclude=bin --exclude=build_dir --exclude=staging_dir --exclude=bin
-        ls bin/targets/*/*/
+        ls -lh bin/targets/*/*/
         sf=${CACHE_NAME%%-*}-${REPO_BRANCH#*-}-$(TZ=UTC-8 date +%m-%d)
         ARCH=`awk -F'"' '/ARCH_PACKAGES/{print $2}' .config`
         [[ $FIRMWARE_TYPE ]] && cp -v $(find bin/targets/ -type f -name "*${FIRMWARE_TYPE}*") ../firmware && \
@@ -292,9 +299,9 @@ jobs:
       with:
         files: firmware/*
         token: ${{secrets.GITHUB_TOKEN}}
-        body: coolsnowwolf-firmware
-        tag_name: ${{env.STRDATE}}-coolsnowwolf
-        name: ${{env.EMOJI}} ${{env.STRDATE}} coolsnowwolf-firmware ${{env.EMOJI}}
+        body: ${{env.REPO}}-firmware
+        tag_name: ${{env.STRDATE}}-${{env.REPO}}
+        name: ${{env.EMOJI}} ${{env.STRDATE}} ${{env.REPO}}-firmware ${{env.EMOJI}}
 
     - name: Save cache state
       continue-on-error: true
@@ -317,6 +324,6 @@ jobs:
       with:
         keep_latest: 15
         delete_tags: true
-        delete_tag_pattern: .*coolsnowwolf$
+        delete_tag_pattern: ^.*immortalwrt$
       env:
         GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
