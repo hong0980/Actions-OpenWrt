@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # Maintain dependencies for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day-of-month: 
+        - 1    # 每月的 1 号
+        - 15   # 每月的 15 号
