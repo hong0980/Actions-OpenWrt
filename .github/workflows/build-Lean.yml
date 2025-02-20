@@ -152,7 +152,7 @@ jobs:
           g++ gawk gcc-multilib gettext git gperf haveged help2man intltool libc6-dev-i386 libelf-dev \
           libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev \
           libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip \
-          p7zip-full patch pkgconf python2.7 python3 python3-distutils python3-pyelftools python3-pip \
+          p7zip-full patch pkgconf python3 python3-distutils python3-pyelftools python3-pip \
           python3-ply python3-docutils python3-pyelftools quilt re2c rename rsync scons squashfs-tools \
           subversion swig texinfo uglifyjs unzip upx-ucl vim wget xmlto xxd zip zlib1g-dev
           sudo -E apt-get -qq purge android* azure-cli dotnet* firefox ghc* google* hhvm llvm* mysql* \
