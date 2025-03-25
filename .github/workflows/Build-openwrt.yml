@@ -1,46 +1,21 @@
-#=================================================
-# https://github.com/P3TERX/Actions-OpenWrt
-# Description: Build OpenWrt using GitHub Actions
-# Lisence: MIT
-# Author: P3TERX
-# Blog: https://p3terx.com
-#=================================================
 
-name: Build-ImmortalWrt
+name: Build-openwrt
 on:
-  # push:
-  #   paths: [ immortalwrt_openwrt ]
-  # schedule: [ cron: 0 2 */7 * * ]
-  # watch:
-  #   types: started
   workflow_dispatch:
     inputs:
-      repo:
-        description: '选择仓库：'
-        default: 'ImmortalWrt'
-        required: true
-        type: choice
-
       branch:
         description: '选择的分支：'
-        default: 'openwrt-21.02'
+        default: 'openwrt-24.10'
         required: true
         type: choice
-        options: [ openwrt-21.02, openwrt-23.05, openwrt-24.10, master, openwrt-18.06-k5.4, openwrt-18.06 ]
+        options: [ main, openwrt-24.10, openwrt-23.05, master, openwrt-21.02, openwrt-18.06 ]
 
       target:
         description: '选择要生成的机型：'
         default: 'x86_64'
         required: true
         type: choice
-        options: [ x86_64, r1-plus-lts, newifi-d2, asus_rt-n16, phicomm_k2p, armvirt-64-default, r4s, r2s, r2c ]
-
-      # version:
-      #   description: '选择要生成版本：'
-      #   default: 'plus'
-      #   required: true
-      #   type: choice
-      #   options: [ pure, plus ]
+        # options: [ x86_64, r1-plus-lts, newifi-d2, asus_rt-n16, phicomm_k2p, armvirt-64-default, r4s, r2s, r2c ]
 
       ip:
         description: '设置web登录IP：'
@@ -86,19 +61,13 @@ jobs:
       contents: write
 
     env:
+      REPO: 'openwrt'
       IP: ${{github.event.inputs.ip}}
-      REPO: ${{github.event.inputs.repo}}
       DEPENDS: ${{github.event.inputs.depends}}
-      # VERSION: ${{github.event.inputs.version}}
       PARTSIZE: ${{github.event.inputs.partsize}}
       REPO_BRANCH: ${{github.event.inputs.branch}}
       FREE_DISK: ${{github.event.inputs.free_disk}}
       TARGET_DEVICE: ${{github.event.inputs.target}}
-
-    # strategy:
-    #   fail-fast: false
-    #   matrix:
-    #     target: ["${{github.event.inputs.target}}"]
 
     steps:
     - name: Checkout
@@ -230,7 +199,7 @@ jobs:
       run: cd $REPO_FLODER && make -j$(nproc) || make -j1 V=s
 
     - name: 上传 Bin
-      uses: actions/upload-artifact@v4.6.0
+      uses: actions/upload-artifact@v4.6.2
       if: steps.organize.conclusion == 'success' && env.UPLOAD_BIN_DIR == 'true' && !cancelled()
       with:
         path: ${{env.REPO_FLODER}}/bin
@@ -262,14 +231,14 @@ jobs:
         echo "STRDATE=$(TZ=UTC-8 date +%Y-%m-%d)" >>$GITHUB_ENV
 
     - name: 上传 Packages
-      uses: actions/upload-artifact@v4.6.0
+      uses: actions/upload-artifact@v4.6.2
       if: env.upload_packages == 'true' && env.UPLOAD_PACKAGES == 'true' && !cancelled()
       with:
         path: firmware/*packages.tar.gz
         name: OpenWrt-${{env.TARGET_DEVICE}}-package
 
     - name: 上传 Firmware
-      uses: actions/upload-artifact@v4.6.0
+      uses: actions/upload-artifact@v4.6.2
       if: env.upload_firmware == 'true' && env.UPLOAD_SYSUPGRADE == 'true' && !cancelled()
       with:
         path: firmware/*${{env.FIRMWARE_TYPE}}*
@@ -323,6 +292,6 @@ jobs:
       with:
         keep_latest: 15
         delete_tags: true
-        delete_tag_pattern: ^.*immortalwrt$
+        delete_tag_pattern: ^.*openwrt-firmware$
       env:
         GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
