@@ -52,10 +52,10 @@ env:
   UPLOAD_COWTRANSFER: true
 
 jobs:
-  immo-openwrt:
+  openwrt:
     runs-on: ubuntu-latest
     if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
-    name: ${{github.event.inputs.repo}}-${{github.event.inputs.branch}}-${{github.event.inputs.target}}
+    name: openwrt-${{github.event.inputs.branch}}-${{github.event.inputs.target}}
 
     permissions:
       contents: write

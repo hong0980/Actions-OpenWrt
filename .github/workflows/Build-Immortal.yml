@@ -15,12 +15,6 @@ on:
   #   types: started
   workflow_dispatch:
     inputs:
-      repo:
-        description: '选择仓库：'
-        default: 'ImmortalWrt'
-        required: true
-        type: choice
-
       branch:
         description: '选择的分支：'
         default: 'openwrt-21.02'
@@ -80,14 +74,14 @@ jobs:
   immo-openwrt:
     runs-on: ubuntu-latest
     if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
-    name: ${{github.event.inputs.repo}}-${{github.event.inputs.branch}}-${{github.event.inputs.target}}
+    name: ImmortalWrt-${{github.event.inputs.branch}}-${{github.event.inputs.target}}
 
     permissions:
       contents: write
 
     env:
       IP: ${{github.event.inputs.ip}}
-      REPO: ${{github.event.inputs.repo}}
+      REPO: 'immortalwrt'
       DEPENDS: ${{github.event.inputs.depends}}
       # VERSION: ${{github.event.inputs.version}}
       PARTSIZE: ${{github.event.inputs.partsize}}
