@@ -135,9 +135,9 @@ jobs:
           g++ gawk gcc-multilib gettext git gperf haveged help2man intltool libc6-dev-i386 libelf-dev \
           libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev \
           libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip \
-          p7zip-full patch pkgconf python3 python3-distutils python3-pyelftools python3-pip \
-          python3-ply python3-docutils python3-pyelftools quilt re2c rename rsync scons squashfs-tools \
-          subversion swig texinfo uglifyjs unzip upx-ucl vim wget xmlto xxd zip zlib1g-dev
+          p7zip-full patch pkgconf python3 python3-pyelftools python3-pip python3-ply python3-docutils \
+          python3-pyelftools quilt re2c rename rsync scons squashfs-tools subversion swig texinfo uglifyjs \
+          unzip upx-ucl vim wget xmlto xxd zip zlib1g-dev
           sudo -E apt-get -qq purge android* azure-cli dotnet* firefox ghc* google* hhvm llvm* mysql* \
           openjdk* php* powershell zulu*
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
@@ -151,15 +151,15 @@ jobs:
       run: wget -qO- git.io/J6IXO | bash
       # run: wget -qO- is.gd/immortalwrt_openwrt | bash
 
-    - name: Cache
-      uses: stupidloud/cachewrtbuild@main
-      continue-on-error: true
-      if: env.CACHE_ACTIONS == 'true'
-      with:
-        ccache: 'true'
-        clean: ${{env.CLEAN}}
-        mixkey: ${{env.CACHE_NAME}}
-        prefix: ${{github.workspace}}/${{env.REPO_FLODER}}
+    # - name: Cache
+    #   uses: stupidloud/cachewrtbuild@main
+    #   continue-on-error: true
+    #   if: env.CACHE_ACTIONS == 'true'
+    #   with:
+    #     ccache: 'true'
+    #     clean: ${{env.CLEAN}}
+    #     mixkey: ${{env.CACHE_NAME}}
+    #     prefix: ${{github.workspace}}/${{env.REPO_FLODER}}
 
     - name: tools
       continue-on-error: true
