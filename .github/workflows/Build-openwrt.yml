@@ -14,8 +14,8 @@ on:
         description: '选择要生成的机型：'
         default: 'x86_64'
         required: false
-        # type: choice
-        # options: [ x86_64, r1-plus-lts, newifi-d2, asus_rt-n16, phicomm_k2p, armvirt-64-default, r4s, r2s, r2c ]
+        type: choice
+        options: [ x86_64, r1-plus-lts, newifi-d2, asus_rt-n16, phicomm_k2p, armvirt-64-default, r4s, r2s, r2c ]
 
       ip:
         description: '设置web登录IP：'
