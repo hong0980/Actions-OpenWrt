@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       keep_latest:
-        description: '每个系列保留最近几个 tag（默认：15）'
+        description: '每个系列保留最近几个 tag（默认：20）'
         required: false
         default: '20'
 
@@ -14,10 +14,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 安装 GitHub CLI
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq gh
+      - name: 安装 GitHub CLI（静默）
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gh
 
       - name: 登录 GitHub CLI
         run: echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
@@ -25,24 +23,34 @@ jobs:
       - name: 清理各系列旧标签（保留最近 ${{ inputs.keep_latest }} 个）
         run: |
           KEEP_LATEST=${{ inputs.keep_latest }}
+          REPO="${{ github.repository }}"
 
           for PROJECT in openwrt immortalwrt coolsnowwolf; do
             echo "🔍 正在处理 $PROJECT 系列标签..."
 
-            TAGS=$(gh release list --limit 1000 --repo "${{ github.repository }}" | awk '{print $1}' | grep "${PROJECT}$" | sort -r)
+            # 获取所有匹配的 tag（按日期排序，最近的在前）
+            gh release list --limit 1000 --json tagName --jq '.[].tagName' \
+              | grep -E "^[0-9\-]+-${PROJECT}$" \
+              | grep -v '\-Cache$' \
+              | sort -r > tags_${PROJECT}.txt
 
-            COUNT=$(echo "$TAGS" | wc -l)
-            if [ "$COUNT" -le "$KEEP_LATEST" ]; then
-              echo "✅ $PROJECT 系列仅有 $COUNT 个标签，无需清理。"
+            TAG_COUNT=$(wc -l < tags_${PROJECT}.txt)
+            if [ "$TAG_COUNT" -le "$KEEP_LATEST" ]; then
+              echo "✅ $PROJECT 系列仅有 $TAG_COUNT 个标签，无需清理。"
               continue
             fi
 
-            echo "📦 $PROJECT 系列标签共 $COUNT 个，将删除 $((COUNT - KEEP_LATEST)) 个旧标签..."
+            echo "📦 $PROJECT 系列标签共 $TAG_COUNT 个，将删除多余 $((TAG_COUNT - KEEP_LATEST)) 个旧标签..."
 
-            DELETE_TAGS=$(echo "$TAGS" | tail -n +$((KEEP_LATEST + 1)))
-            for TAG in $DELETE_TAGS; do
+            tail -n +$((KEEP_LATEST + 1)) tags_${PROJECT}.txt | while read -r TAG; do
               echo "::warning:: 删除 $PROJECT → $TAG"
-              gh release delete "$TAG" -y --repo "${{ github.repository }}" || echo "⚠️ Release $TAG 不存在或删除失败"
-              gh tag delete "$TAG" --repo "${{ github.repository }}" || echo "⚠️ Tag $TAG 删除失败"
+
+              # 删除 release（如果存在）
+              gh release delete "$TAG" -y || echo "⚠️ Release $TAG 不存在或已删除"
+
+              # 删除 tag（通过 GitHub API，无需 git clone）
+              gh api -X DELETE /repos/"$REPO"/git/refs/tags/"$TAG" || echo "⚠️ Tag $TAG 删除失败或不存在"
             done
           done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
