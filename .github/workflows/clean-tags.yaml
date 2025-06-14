@@ -28,8 +28,8 @@ jobs:
           for PROJECT in openwrt immortalwrt coolsnowwolf; do
             echo "🔍 正在处理 $PROJECT 系列标签..."
 
-            # 获取所有匹配的 tag（按日期排序，最近的在前）
-            gh release list --limit 1000 --json tagName --jq '.[].tagName' \
+            # 用 -R 指定仓库，避免 .git 报错
+            gh release list -R "$REPO" --limit 1000 --json tagName --jq '.[].tagName' \
               | grep -E "^[0-9\-]+-${PROJECT}$" \
               | grep -v '\-Cache$' \
               | sort -r > tags_${PROJECT}.txt
@@ -45,10 +45,10 @@ jobs:
             tail -n +$((KEEP_LATEST + 1)) tags_${PROJECT}.txt | while read -r TAG; do
               echo "::warning:: 删除 $PROJECT → $TAG"
 
-              # 删除 release（如果存在）
-              gh release delete "$TAG" -y || echo "⚠️ Release $TAG 不存在或已删除"
+              # 删除 Release（如果有）
+              gh release delete "$TAG" -R "$REPO" -y || echo "⚠️ Release $TAG 不存在或已删除"
 
-              # 删除 tag（通过 GitHub API，无需 git clone）
+              # 删除 Tag（通过 API）
               gh api -X DELETE /repos/"$REPO"/git/refs/tags/"$TAG" || echo "⚠️ Tag $TAG 删除失败或不存在"
             done
           done
