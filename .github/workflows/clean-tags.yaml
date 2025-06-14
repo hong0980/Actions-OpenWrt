@@ -1,0 +1,47 @@
+name: 清理旧 Releases 和 Tags
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_latest:
+        description: '每个系列保留最近几个 tag（默认：15）'
+        required: false
+        default: '20'
+
+jobs:
+  cleanup:
+    name: 清理 openwrt / immortalwrt / coolsnowwolf 标签
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 安装 GitHub CLI
+        run: sudo apt-get update && sudo apt-get install -y gh
+
+      - name: 登录 GitHub CLI
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      - name: 清理各系列旧标签（保留最近 ${{ inputs.keep_latest }} 个）
+        run: |
+          KEEP_LATEST=${{ inputs.keep_latest }}
+
+          for PROJECT in openwrt immortalwrt coolsnowwolf; do
+            echo "🔍 正在处理 $PROJECT 系列标签..."
+
+            git ls-remote --tags origin | cut -d/ -f3 | grep -E "^[0-9\-]+-${PROJECT}$" | grep -v '\-Cache$' | sort -r > tags_${PROJECT}.txt
+
+            TAG_COUNT=$(wc -l < tags_${PROJECT}.txt)
+            if [ "$TAG_COUNT" -le "$KEEP_LATEST" ]; then
+              echo "✅ $PROJECT 系列仅有 $TAG_COUNT 个标签，无需清理。"
+              continue
+            fi
+
+            echo "📦 $PROJECT 系列标签共 $TAG_COUNT 个，将删除多余 $((TAG_COUNT - KEEP_LATEST)) 个旧标签..."
+
+            tail -n +$((KEEP_LATEST + 1)) tags_${PROJECT}.txt | while read TAG; do
+              echo "::warning:: 删除 $PROJECT → $TAG"
+              gh release delete "$TAG" -y || echo "⚠️ Release $TAG 不存在或已删除"
+              git push origin :refs/tags/"$TAG" || echo "⚠️ Tag $TAG 删除失败或不存在"
+            done
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
