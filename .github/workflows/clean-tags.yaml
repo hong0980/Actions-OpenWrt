@@ -12,7 +12,7 @@ jobs:
   clean-old-tags:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
 
     steps:
     - name: 设置保留数量变量
