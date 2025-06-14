@@ -24,9 +24,6 @@ jobs:
         sudo apt-get update -qq
         sudo apt-get install -y -qq gh
 
-    - name: 登录 GitHub CLI
-      run: echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-
     - name: 清理旧标签（每个系列保留 ${{ env.KEEP }} 个）
       run: |
         PROJECTS=("openwrt" "immortalwrt" "coolsnowwolf")
