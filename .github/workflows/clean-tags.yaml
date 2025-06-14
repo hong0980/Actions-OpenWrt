@@ -10,28 +10,27 @@ on:
 
 jobs:
   cleanup:
-    name: 清理 openwrt / immortalwrt / coolsnowwolf 标签
+    name: 清理标签
     runs-on: ubuntu-latest
 
     steps:
-      - name: 安装 GitHub CLI（静默）
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq gh
+      - name: 安装依赖
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gh jq
 
       - name: 登录 GitHub CLI
         run: echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
       - name: 清理各系列旧标签（保留最近 ${{ inputs.keep_latest }} 个）
+        env:
+          KEEP_LATEST: ${{ inputs.keep_latest }}
+          REPO: ${{ github.repository }}
         run: |
-          KEEP_LATEST=${{ inputs.keep_latest }}
-          REPO="${{ github.repository }}"
-
           for PROJECT in openwrt immortalwrt coolsnowwolf; do
             echo "🔍 正在处理 $PROJECT 系列标签..."
 
-            # 用 -R 指定仓库，避免 .git 报错
-            gh release list -R "$REPO" --limit 1000 --json tagName --jq '.[].tagName' \
-              | grep -E "^[0-9\-]+-${PROJECT}$" \
-              | grep -v '\-Cache$' \
+            # 获取当前仓库所有 tag 名称
+            gh api repos/$REPO/tags | jq -r '.[].name' \
+              | grep -E "^[0-9\-]+-${PROJECT}$" | grep -v '\-Cache$' \
               | sort -r > tags_${PROJECT}.txt
 
             TAG_COUNT=$(wc -l < tags_${PROJECT}.txt)
@@ -42,15 +41,15 @@ jobs:
 
             echo "📦 $PROJECT 系列标签共 $TAG_COUNT 个，将删除多余 $((TAG_COUNT - KEEP_LATEST)) 个旧标签..."
 
-            tail -n +$((KEEP_LATEST + 1)) tags_${PROJECT}.txt | while read -r TAG; do
+            tail -n +$((KEEP_LATEST + 1)) tags_${PROJECT}.txt | while read TAG; do
               echo "::warning:: 删除 $PROJECT → $TAG"
 
-              # 删除 Release（如果有）
-              gh release delete "$TAG" -R "$REPO" -y || echo "⚠️ Release $TAG 不存在或已删除"
+              # 删除 Release（如果存在）
+              gh release delete "$TAG" -y 2>/dev/null || echo "⚠️ Release $TAG 不存在或已删除"
 
-              # 删除 Tag（通过 API）
-              gh api -X DELETE /repos/"$REPO"/git/refs/tags/"$TAG" || echo "⚠️ Tag $TAG 删除失败或不存在"
+              # 删除 Git tag（通过 GitHub API）
+              gh api -X DELETE "repos/$REPO/git/refs/tags/$TAG" \
+                && echo "✅ 已删除 tag: $TAG" \
+                || echo "⚠️ 删除 tag $TAG 失败，可能已不存在"
             done
           done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
