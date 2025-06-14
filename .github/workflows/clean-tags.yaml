@@ -29,32 +29,33 @@ jobs:
         PROJECTS=("openwrt" "immortalwrt" "coolsnowwolf")
         for PROJECT in "${PROJECTS[@]}"; do
           echo -e "\n处理 $PROJECT 系列标签..."
+
           gh api repos/${{ github.repository }}/tags \
-            --paginate | jq -r '.[].name' | grep "^20.*-$PROJECT$" | grep -v '\-Cache$' | sort -r > tags.txt
+            --paginate | jq -r '.[].name' | grep "^20.*-$PROJECT$" | grep -v '\-Cache$' | sort > tags.txt
 
           TAG_COUNT=$(wc -l < tags.txt)
           echo "现有标签数量：$TAG_COUNT"
 
           if [ "$TAG_COUNT" -le "$KEEP" ]; then
-            echo "$PROJECT 系列仅有 $TAG_COUNT 个标签，无需清理。"
+            echo "✅ $PROJECT 系列仅有 $TAG_COUNT 个标签，无需清理。"
             continue
           fi
 
-          # 需要删除的旧标签
-          tail -n +$(($KEEP + 1)) tags.txt > tags_to_delete.txt
+          # 取出最旧的 TAG，留下最新的 KEEP 个
+          head -n -$KEEP tags.txt > tags_to_delete.txt || true
 
           while read -r TAG; do
-            echo "🔸 删除标签: $TAG"
+            echo "🗑️ 删除标签：$TAG"
 
             # 删除 tag
-            gh api -X DELETE repos/${{ github.repository }}/git/refs/tags/$TAG || echo "❗ 删除标签失败或已不存在: $TAG"
+            gh api -X DELETE repos/${{ github.repository }}/git/refs/tags/$TAG || echo "⚠️ 标签删除失败或已不存在：$TAG"
 
-            # 查找对应 release ID
+            # 删除关联 release
             RELEASE_ID=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.tag_name == \"$TAG\") | .id")
             if [ -n "$RELEASE_ID" ]; then
-              gh api -X DELETE repos/${{ github.repository }}/releases/$RELEASE_ID || echo "❗ 删除 Release 失败: $TAG"
+              gh api -X DELETE repos/${{ github.repository }}/releases/$RELEASE_ID || echo "⚠️ Release 删除失败：$TAG"
             else
-              echo "⚠️ 未找到对应 Release: $TAG"
+              echo "🔍 无对应 Release：$TAG"
             fi
           done < tags_to_delete.txt
         done
