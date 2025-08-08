@@ -1,4 +1,4 @@
-name: Safe OpenWrt Releases Cleanup
+name: 清理 release tag
 
 on:
   workflow_dispatch:
@@ -12,26 +12,29 @@ on:
         required: false
         default: 'false'
   schedule:
-    - cron: '0 3 * * *'  # 每天UTC时间3点自动运行(北京时间11点)
+    - cron: '0 20 * * 6'  # 每周六UTC时间20点自动运行(北京时间周日4点)
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # 设置15分钟超时
     permissions:
       contents: write
     steps:
-      - name: Checkout repository
+      - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: 设置Python环境
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
-        run: pip install PyGithub
+      - name: 安装Python依赖
+        run: |
+          pip install PyGithub
+          pip install click
 
-      - name: Execute cleanup
+      - name: 执行清理
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KEEP_LATEST: ${{ inputs.keep_latest || 20 }}
@@ -43,9 +46,14 @@ jobs:
           import os
           import sys
           from datetime import datetime
+          try:
+              import click
+          except ImportError:
+              print("❌ Click包未安装，请确保前置步骤已安装依赖")
+              sys.exit(1)
 
           # 配置参数
-          REPO_NAME = "hong0980/Actions-OpenWrt"
+          REPO_NAME = os.getenv('GITHUB_REPOSITORY', 'hong0980/Actions-OpenWrt')
           TARGET_PATTERNS = ["openwrt", "coolsnowwolf", "immortalwrt"]
 
           # 获取环境变量
@@ -87,27 +95,21 @@ jobs:
           delete = candidates[keep_latest:]
 
           # 生成报告
-          report = [
-              "\n📝 清理计划报告:",
-              f"• 仓库: {REPO_NAME}",
-              f"• 找到 {len(candidates)} 个符合条件的releases",
-              f"• 将保留最新的 {len(keep)} 个releases:",
-              *[f"  {i+1}. {tag} ({date.date()})" for i, (date, _, tag) in enumerate(keep)],
-              f"\n• 将删除 {len(delete)} 个旧releases:",
-              *[f"  - {tag} ({date.date()})" for date, _, tag in delete],
-              f"\n• 当前模式: {'定时任务' if is_scheduled else '手动触发'}"
-          ]
+          print("\n📝 清理计划报告:")
+          print(f"• 仓库: {REPO_NAME}")
+          print(f"• 找到 {len(candidates)} 个符合条件的releases")
+          print(f"• 将保留最新的 {len(keep)} 个releases:")
+          for i, (date, _, tag) in enumerate(keep, 1):
+              print(f"  {i}. {tag} ({date.date()})")
 
-          print("\n".join(report))
+          print(f"\n• 将删除 {len(delete)} 个旧releases:")
+          for date, _, tag in delete:
+              print(f"  - {tag} ({date.date()})")
+
+          print(f"\n• 当前模式: {'定时任务' if is_scheduled else '手动触发'}")
 
           # 确认流程 (非定时任务且未跳过确认时)
           if not is_scheduled and not skip_confirm:
-              try:
-                  import click
-              except ImportError:
-                  !pip install click
-                  import click
-
               if not click.confirm('\n⚠️ 确认要执行删除操作吗?', default=False):
                   print("🛑 用户取消操作")
                   sys.exit(0)
@@ -125,12 +127,9 @@ jobs:
                   print(f"❌ 删除失败: {str(e)}")
 
           # 结果摘要
-          summary = [
-              "\n📊 清理结果摘要:",
-              f"• 尝试删除: {len(delete)} 个releases",
-              f"• 成功删除: {deleted_count} 个",
-              f"• 失败: {len(delete) - deleted_count} 个",
-              f"• 最终保留: {len(keep)} 个最新releases"
-          ]
-          print("\n".join(summary))
+          print("\n📊 清理结果摘要:")
+          print(f"• 尝试删除: {len(delete)} 个releases")
+          print(f"• 成功删除: {deleted_count} 个")
+          print(f"• 失败: {len(delete) - deleted_count} 个")
+          print(f"• 最终保留: {len(keep)} 个最新releases")
           EOF
