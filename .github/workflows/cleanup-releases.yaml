@@ -1,14 +1,14 @@
-name: 清理 release 和 tag
+name: 清理 OpenWrt Releases 和 Tags
 
 on:
   workflow_dispatch:
     inputs:
-      keep_latest:
-        description: '保留最新的N个release (默认20)'
+      keep_per_type:
+        description: '每种类型保留的最新release数量(默认20)'
         required: false
         default: '20'
       confirm_delete:
-        description: '必须设置为"CONFIRM"才会实际执行删除'
+        description: '必须设置为" CONFIRM "才会实际执行删除'
         required: true
         default: 'DRY-RUN'
   schedule:
@@ -18,7 +18,7 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 必须要有写权限
+      contents: write
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -34,7 +34,7 @@ jobs:
       - name: 执行清理
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KEEP_LATEST: ${{ inputs.keep_latest || 20 }}
+          KEEP_PER_TYPE: ${{ inputs.keep_per_type || 20 }}
           CONFIRM_DELETE: ${{ inputs.confirm_delete || 'DRY-RUN' }}
         run: |
           python - <<EOF
@@ -42,86 +42,107 @@ jobs:
           import os
           import sys
           from datetime import datetime
+          from collections import defaultdict
 
-          # 配置
+          # 配置 - 包含所有可能的拼写变体
           REPO_NAME = os.getenv('GITHUB_REPOSITORY')
-          TARGET_PATTERNS = ["openwrt", "coolsnowwolf", "immortalwrt"]
-          KEEP = int(os.getenv('KEEP_LATEST', 20))
+          TARGET_TYPES = {
+              'openwrt': ['openwrt', 'opemurt', 'opemwrt'],
+              'coolsnowwolf': ['coolsnowwolf'],
+              'immortalwrt': ['immortalwrt', 'immortalurt']
+          }
+          KEEP = int(os.getenv('KEEP_PER_TYPE', 20))
           CONFIRM = os.getenv('CONFIRM_DELETE') == 'CONFIRM'
 
           # 初始化
           gh = Github(os.getenv('GITHUB_TOKEN'))
           repo = gh.get_repo(REPO_NAME)
 
-          def should_keep(tag_name):
-              return any(p in tag_name for p in TARGET_PATTERNS)
+          def get_release_type(tag_name):
+              """识别release类型"""
+              for type_name, patterns in TARGET_TYPES.items():
+                  if any(p in tag_name.lower() for p in patterns):
+                      return type_name
+              return None
 
           def parse_date(tag_name):
+              """从tag名解析日期"""
               try:
-                  return datetime.strptime('-'.join(tag_name.split('-')[:3]), "%Y-%m-%d")
-              except:
+                  parts = tag_name.split('-')
+                  if len(parts) >= 3:
+                      date_str = '-'.join(parts[:3])
+                      return datetime.strptime(date_str, "%Y-%m-%d")
+              except ValueError:
                   return None
 
-          # 收集releases
-          releases = []
+          # 按类型收集releases
+          releases_by_type = defaultdict(list)
           for release in repo.get_releases():
               tag = release.tag_name
-              if not should_keep(tag):
-                  continue
-              if date := parse_date(tag):
-                  releases.append((date, release, tag))
+              if release_type := get_release_type(tag):
+                  if date := parse_date(tag):
+                      releases_by_type[release_type].append((date, release, tag))
 
-          if not releases:
+          if not releases_by_type:
               print("ℹ️ 没有找到符合条件的releases")
               sys.exit(0)
 
-          # 排序
-          releases.sort(key=lambda x: x[0], reverse=True)
+          # 确定要删除的releases
+          to_delete = []
+          for release_type, releases in releases_by_type.items():
+              # 按日期排序(新->旧)
+              releases.sort(key=lambda x: x[0], reverse=True)
 
-          # 分割
-          keep = releases[:KEEP]
-          delete = releases[KEEP:]
+              # 保留每种类型最新的KEEP个
+              keep = releases[:KEEP]
+              delete = releases[KEEP:]
 
-          # 打印计划
-          print(f"将保留 {len(keep)} 个最新releases:")
-          for i, (date, _, tag) in enumerate(keep, 1):
-              print(f"  {i}. {tag}")
+              print(f"\n🔵 {release_type.upper()} 类型:")
+              print(f"• 保留最新的 {len(keep)} 个:")
+              for i, (date, _, tag) in enumerate(keep, 1):
+                  print(f"  {i}. {tag} ({date.date()})")
 
-          print(f"\n将删除 {len(delete)} 个旧releases和tags:")
-          for _, _, tag in delete:
-              print(f"  - {tag}")
+              if delete:
+                  print(f"• 将删除 {len(delete)} 个旧的:")
+                  for date, _, tag in delete:
+                      print(f"  - {tag} ({date.date()})")
+                  to_delete.extend(delete)
+              else:
+                  print("• 无需删除 (数量未超过保留限制)")
+
+          if not to_delete:
+              print("\n🟢 没有需要删除的releases")
+              sys.exit(0)
 
           if not CONFIRM:
-              print("\n🛑 试运行模式，如需实际删除请设置 confirm_delete=CONFIRM")
+              print("\n🛑 试运行完成，如需实际删除请设置 confirm_delete=CONFIRM")
               sys.exit(0)
 
           # 实际删除
+          deleted_count = 0
           failed_tags = []
-          for _, release, tag in delete:
+          for _, release, tag in to_delete:
               try:
-                  # 1. 先删除release
+                  # 1. 删除release
                   print(f"\n🗑 删除release: {tag}")
                   release.delete_release()
 
-                  # 2. 删除tag (正确的ref路径)
+                  # 2. 删除tag (使用正确的ref路径)
                   try:
-                      print(f"🗑 删除tag: {tag}")
                       repo.get_git_ref(f"refs/tags/{tag}").delete()
+                      print(f"✅ 已删除tag: {tag}")
+                      deleted_count += 1
                   except GithubException as e:
-                      if e.status == 404:
-                          print(f"⚠️ tag {tag} 不存在(可能已被删除)")
-                      else:
-                          print(f"❌ 删除tag失败: {e.data.get('message', str(e))}")
-                          failed_tags.append(tag)
+                      print(f"❌ 删除tag失败: {e.data.get('message', str(e))}")
+                      failed_tags.append(tag)
               except Exception as e:
                   print(f"❌ 删除失败: {str(e)}")
                   failed_tags.append(tag)
 
           # 结果报告
-          success = len(delete) - len(failed_tags)
-          print(f"\n✅ 成功删除 {success}/{len(delete)} 个release和tag")
+          print(f"\n📊 删除结果: {deleted_count}/{len(to_delete)} 成功")
           if failed_tags:
-              print("\n⚠️ 以下tag删除失败，可能需要手动删除:")
+              print("\n⚠️ 以下tag需要手动删除:")
               for tag in failed_tags:
                   print(f"  - {tag}")
                   print(f"    手动删除命令: gh api -X DELETE /repos/{REPO_NAME}/git/refs/tags/{tag}")
