@@ -15,7 +15,7 @@ on:
     - cron: '0 20 */15 * *'
 
 jobs:
-  清理任务:
+  delete-Releases-Tags:
     runs-on: ubuntu-latest
     permissions:
       contents: write
