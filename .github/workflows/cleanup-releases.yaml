@@ -1,4 +1,4 @@
-name: 清理 release tag
+name: 清理 release 和 tag
 
 on:
   workflow_dispatch:
@@ -12,14 +12,14 @@ on:
         required: true
         default: 'DRY-RUN'
   schedule:
-    - cron: '0 20 * * 6'  # 每周六UTC时间20点自动运行(北京时间周日4点)
+    - cron: '0 20 * * 6'  # 每周六UTC时间20点自动运行
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write
+      contents: write  # 必须要有写权限才能删除tag
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -37,7 +37,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KEEP_LATEST: ${{ inputs.keep_latest || 20 }}
           CONFIRM_DELETE: ${{ inputs.confirm_delete || 'DRY-RUN' }}
-          IS_SCHEDULED: ${{ github.event_name == 'schedule' }}
         run: |
           python - <<EOF
           from github import Github
@@ -46,13 +45,12 @@ jobs:
           from datetime import datetime
 
           # 配置参数
-          REPO_NAME = os.getenv('GITHUB_REPOSITORY', 'hong0980/Actions-OpenWrt')
+          REPO_NAME = os.getenv('GITHUB_REPOSITORY')
           TARGET_PATTERNS = ["openwrt", "coolsnowwolf", "immortalwrt"]
 
           # 获取环境变量
           keep_latest = int(os.getenv('KEEP_LATEST', 20))
           confirm_delete = os.getenv('CONFIRM_DELETE', 'DRY-RUN') == 'CONFIRM'
-          is_scheduled = os.getenv('IS_SCHEDULED', 'false').lower() == 'true'
 
           # 初始化GitHub客户端
           gh = Github(os.getenv('GITHUB_TOKEN'))
@@ -65,15 +63,15 @@ jobs:
               except (ValueError, IndexError):
                   return None
 
-          # 收集符合条件的release
+          # 收集符合条件的release和tag
           candidates = []
           for release in repo.get_releases():
-              tag = release.tag_name
-              if not any(p in tag for p in TARGET_PATTERNS):
+              tag_name = release.tag_name
+              if not any(p in tag_name for p in TARGET_PATTERNS):
                   continue
 
-              if (date := parse_tag_date(tag)):
-                  candidates.append((date, release, tag))
+              if (date := parse_tag_date(tag_name)):
+                  candidates.append((date, release, tag_name))
 
           if not candidates:
               print("ℹ️ 没有找到符合条件的releases")
@@ -88,40 +86,49 @@ jobs:
 
           # 生成报告
           print("\n📝 清理计划报告:")
-          print(f"• 仓库: {REPO_NAME}")
-          print(f"• 找到 {len(candidates)} 个符合条件的releases")
           print(f"• 将保留最新的 {len(keep)} 个releases:")
           for i, (date, _, tag) in enumerate(keep, 1):
               print(f"  {i}. {tag} ({date.date()})")
 
-          print(f"\n• 将删除 {len(delete)} 个旧releases:")
+          print(f"\n• 将删除 {len(delete)} 个旧releases和tags:")
           for date, _, tag in delete:
               print(f"  - {tag} ({date.date()})")
 
-          print(f"\n• 当前模式: {'定时任务' if is_scheduled else '手动触发'}")
-          print(f"• 执行状态: {'实际删除' if confirm_delete else '试运行'}")
-
-          # 确认逻辑
           if not confirm_delete:
               print("\n🛑 试运行完成，如需实际删除请设置 confirm_delete=CONFIRM")
               sys.exit(0)
 
           # 实际删除操作
-          deleted_count = 0
+          deleted_releases = 0
+          deleted_tags = 0
           for date, release, tag in delete:
               try:
-                  print(f"\n🗑️ 处理 {tag}...")
+                  # 删除release
+                  print(f"\n🗑️ 正在删除release: {tag}")
                   release.delete_release()
-                  repo.get_git_ref(f"tags/{tag}").delete()
-                  print(f"✅ 已删除 {tag}")
-                  deleted_count += 1
+                  deleted_releases += 1
+
+                  # 删除tag (使用Git Ref API)
+                  try:
+                      ref = repo.get_git_ref(f"tags/{tag}")
+                      ref.delete()
+                      print(f"✅ 已删除tag: {tag}")
+                      deleted_tags += 1
+                  except Exception as e:
+                      print(f"❌ 删除tag失败: {str(e)}")
+
               except Exception as e:
-                  print(f"❌ 删除失败: {str(e)}")
+                  print(f"❌ 删除release失败: {str(e)}")
 
           # 结果摘要
           print("\n📊 清理结果摘要:")
-          print(f"• 尝试删除: {len(delete)} 个releases")
-          print(f"• 成功删除: {deleted_count} 个")
-          print(f"• 失败: {len(delete) - deleted_count} 个")
+          print(f"• 成功删除releases: {deleted_releases}/{len(delete)}")
+          print(f"• 成功删除tags: {deleted_tags}/{len(delete)}")
           print(f"• 最终保留: {len(keep)} 个最新releases")
+
+          if deleted_tags < len(delete):
+              print("\n⚠️ 部分tags删除失败，请检查是否有以下情况:")
+              print("1. Tag已被其他引用占用")
+              print("2. 权限不足(GITHUB_TOKEN需要repo权限)")
+              print("3. GitHub API限流")
           EOF
