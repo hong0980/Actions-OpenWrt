@@ -1,0 +1,136 @@
+name: Safe OpenWrt Releases Cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_latest:
+        description: '保留最新的N个release (默认20)'
+        required: false
+        default: '20'
+      skip_confirmation:
+        description: '跳过确认直接执行 (true/false)'
+        required: false
+        default: 'false'
+  schedule:
+    - cron: '0 3 * * *'  # 每天UTC时间3点自动运行(北京时间11点)
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install PyGithub
+
+      - name: Execute cleanup
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_LATEST: ${{ inputs.keep_latest || 20 }}
+          SKIP_CONFIRM: ${{ inputs.skip_confirmation || 'false' }}
+          IS_SCHEDULED: ${{ github.event_name == 'schedule' }}
+        run: |
+          python - <<EOF
+          from github import Github
+          import os
+          import sys
+          from datetime import datetime
+
+          # 配置参数
+          REPO_NAME = "hong0980/Actions-OpenWrt"
+          TARGET_PATTERNS = ["openwrt", "coolsnowwolf", "immortalwrt"]
+
+          # 获取环境变量
+          keep_latest = int(os.getenv('KEEP_LATEST', 20))
+          skip_confirm = os.getenv('SKIP_CONFIRM', 'false').lower() == 'true'
+          is_scheduled = os.getenv('IS_SCHEDULED', 'false').lower() == 'true'
+
+          # 初始化GitHub客户端
+          gh = Github(os.getenv('GITHUB_TOKEN'))
+          repo = gh.get_repo(REPO_NAME)
+
+          def parse_tag_date(tag):
+              """安全解析标签日期"""
+              try:
+                  date_part = '-'.join(tag.split('-')[:3])
+                  return datetime.strptime(date_part, "%Y-%m-%d")
+              except (ValueError, IndexError):
+                  return None
+
+          # 收集符合条件的release
+          candidates = []
+          for release in repo.get_releases():
+              tag = release.tag_name
+              if not any(p in tag for p in TARGET_PATTERNS):
+                  continue
+
+              if (date := parse_tag_date(tag)):
+                  candidates.append((date, release, tag))
+
+          if not candidates:
+              print("ℹ️ 没有找到符合条件的releases")
+              sys.exit(0)
+
+          # 按日期排序
+          candidates.sort(key=lambda x: x[0], reverse=True)
+
+          # 分割保留/删除列表
+          keep = candidates[:keep_latest]
+          delete = candidates[keep_latest:]
+
+          # 生成报告
+          report = [
+              "\n📝 清理计划报告:",
+              f"• 仓库: {REPO_NAME}",
+              f"• 找到 {len(candidates)} 个符合条件的releases",
+              f"• 将保留最新的 {len(keep)} 个releases:",
+              *[f"  {i+1}. {tag} ({date.date()})" for i, (date, _, tag) in enumerate(keep)],
+              f"\n• 将删除 {len(delete)} 个旧releases:",
+              *[f"  - {tag} ({date.date()})" for date, _, tag in delete],
+              f"\n• 当前模式: {'定时任务' if is_scheduled else '手动触发'}"
+          ]
+
+          print("\n".join(report))
+
+          # 确认流程 (非定时任务且未跳过确认时)
+          if not is_scheduled and not skip_confirm:
+              try:
+                  import click
+              except ImportError:
+                  !pip install click
+                  import click
+
+              if not click.confirm('\n⚠️ 确认要执行删除操作吗?', default=False):
+                  print("🛑 用户取消操作")
+                  sys.exit(0)
+
+          # 实际删除操作
+          deleted_count = 0
+          for date, release, tag in delete:
+              try:
+                  print(f"\n🗑️ 处理 {tag}...")
+                  release.delete_release()
+                  repo.get_git_ref(f"tags/{tag}").delete()
+                  print(f"✅ 已删除 {tag}")
+                  deleted_count += 1
+              except Exception as e:
+                  print(f"❌ 删除失败: {str(e)}")
+
+          # 结果摘要
+          summary = [
+              "\n📊 清理结果摘要:",
+              f"• 尝试删除: {len(delete)} 个releases",
+              f"• 成功删除: {deleted_count} 个",
+              f"• 失败: {len(delete) - deleted_count} 个",
+              f"• 最终保留: {len(keep)} 个最新releases"
+          ]
+          print("\n".join(summary))
+          EOF
