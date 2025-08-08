@@ -7,17 +7,17 @@ on:
         description: '保留最新的N个release (默认20)'
         required: false
         default: '20'
-      skip_confirmation:
-        description: '跳过确认直接执行 (true/false)'
-        required: false
-        default: 'false'
+      confirm_delete:
+        description: '必须设置为"CONFIRM"才会实际执行删除'
+        required: true
+        default: 'DRY-RUN'
   schedule:
     - cron: '0 20 * * 6'  # 每周六UTC时间20点自动运行(北京时间周日4点)
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # 设置15分钟超时
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -30,15 +30,13 @@ jobs:
           python-version: '3.10'
 
       - name: 安装Python依赖
-        run: |
-          pip install PyGithub
-          pip install click
+        run: pip install PyGithub
 
       - name: 执行清理
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KEEP_LATEST: ${{ inputs.keep_latest || 20 }}
-          SKIP_CONFIRM: ${{ inputs.skip_confirmation || 'false' }}
+          CONFIRM_DELETE: ${{ inputs.confirm_delete || 'DRY-RUN' }}
           IS_SCHEDULED: ${{ github.event_name == 'schedule' }}
         run: |
           python - <<EOF
@@ -46,11 +44,6 @@ jobs:
           import os
           import sys
           from datetime import datetime
-          try:
-              import click
-          except ImportError:
-              print("❌ Click包未安装，请确保前置步骤已安装依赖")
-              sys.exit(1)
 
           # 配置参数
           REPO_NAME = os.getenv('GITHUB_REPOSITORY', 'hong0980/Actions-OpenWrt')
@@ -58,7 +51,7 @@ jobs:
 
           # 获取环境变量
           keep_latest = int(os.getenv('KEEP_LATEST', 20))
-          skip_confirm = os.getenv('SKIP_CONFIRM', 'false').lower() == 'true'
+          confirm_delete = os.getenv('CONFIRM_DELETE', 'DRY-RUN') == 'CONFIRM'
           is_scheduled = os.getenv('IS_SCHEDULED', 'false').lower() == 'true'
 
           # 初始化GitHub客户端
@@ -66,7 +59,6 @@ jobs:
           repo = gh.get_repo(REPO_NAME)
 
           def parse_tag_date(tag):
-              """安全解析标签日期"""
               try:
                   date_part = '-'.join(tag.split('-')[:3])
                   return datetime.strptime(date_part, "%Y-%m-%d")
@@ -107,12 +99,12 @@ jobs:
               print(f"  - {tag} ({date.date()})")
 
           print(f"\n• 当前模式: {'定时任务' if is_scheduled else '手动触发'}")
+          print(f"• 执行状态: {'实际删除' if confirm_delete else '试运行'}")
 
-          # 确认流程 (非定时任务且未跳过确认时)
-          if not is_scheduled and not skip_confirm:
-              if not click.confirm('\n⚠️ 确认要执行删除操作吗?', default=False):
-                  print("🛑 用户取消操作")
-                  sys.exit(0)
+          # 确认逻辑
+          if not confirm_delete:
+              print("\n🛑 试运行完成，如需实际删除请设置 confirm_delete=CONFIRM")
+              sys.exit(0)
 
           # 实际删除操作
           deleted_count = 0
