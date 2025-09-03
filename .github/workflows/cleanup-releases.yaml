@@ -10,7 +10,7 @@ on:
       confirm_delete:
         description: '必须设置为" CONFIRM "才会实际执行删除'
         required: true
-        default: 'DRY-RUN'
+        default: 'CONFIRM'
   schedule:
     - cron: '0 20 */15 * *'
 
@@ -42,6 +42,7 @@ jobs:
           from datetime import datetime
           from collections import defaultdict
           from github import Github, GithubException
+          from github import Auth
 
           REPO_NAME = os.getenv('GITHUB_REPOSITORY')
           TARGET_TYPES = {
@@ -52,7 +53,7 @@ jobs:
           KEEP = int(os.getenv('KEEP_PER_TYPE', 20))
           CONFIRM = os.getenv('CONFIRM_DELETE') == 'CONFIRM'
 
-          gh = Github(os.getenv('GITHUB_TOKEN'))
+          gh = Github(auth=Auth.Token(os.getenv('GITHUB_TOKEN')))
           repo = gh.get_repo(REPO_NAME)
 
           def get_release_type(tag_name):
