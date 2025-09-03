@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       keep_per_type:
-        description: '每种类型保留的最新release数量(默认20)'
+        description: '每种类型保留的最新release数量 (默认20)'
         required: false
         default: '20'
       confirm_delete:
-        description: '必须设置为" CONFIRM "才会实际执行删除'
+        description: '必须设置为 "CONFIRM" 才会实际执行删除'
         required: true
         default: 'CONFIRM'
   schedule:
@@ -36,6 +36,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KEEP_PER_TYPE: ${{ inputs.keep_per_type || 20 }}
           CONFIRM_DELETE: ${{ inputs.confirm_delete || 'DRY-RUN' }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           python - <<EOF
           import os, sys
@@ -72,7 +73,14 @@ jobs:
               except ValueError:
                   return None
 
-          # 按类型收集releases
+          # 获取所有 tag 名
+          print("⏳ 正在获取所有 tags ...")
+          all_tags = set()
+          tags = repo.get_tags()
+          for t in tags:
+              all_tags.add(t.name)
+
+          # 按类型收集 releases
           releases_by_type = defaultdict(list)
           for release in repo.get_releases():
               tag = release.tag_name
@@ -81,13 +89,13 @@ jobs:
                       releases_by_type[release_type].append((date, release, tag))
 
           if not releases_by_type:
-              print("ℹ️ 没有找到符合条件的releases")
+              print("ℹ️ 没有找到符合条件的 releases")
               sys.exit(0)
 
-          # 确定要删除的releases
+          # 确定要删除的 releases
           to_delete = []
           for release_type, releases in releases_by_type.items():
-              # 按日期排序(新->旧)
+              # 按日期排序 (新->旧)
               releases.sort(key=lambda x: x[0], reverse=True)
 
               keep = releases[:KEEP]
@@ -107,7 +115,7 @@ jobs:
                   print("• 无需删除 (数量未超过保留限制)")
 
           if not to_delete:
-              print("\n🟢 没有需要删除的releases")
+              print("\n🟢 没有需要删除的 releases")
               sys.exit(0)
 
           if not CONFIRM:
@@ -119,23 +127,25 @@ jobs:
           failed_tags = []
           for _, release, tag in to_delete:
               try:
-                  print(f"\n🗑 删除release: {tag}")
+                  print(f"\n🗑 删除 release: {tag}")
                   release.delete_release()
-
-                  try:
-                      repo.get_git_ref(f"refs/tags/{tag}").delete()
-                      print(f"✅ 已删除tag: {tag}")
-                      deleted_count += 1
-                  except GithubException as e:
-                      print(f"❌ 删除tag失败: {e.data.get('message', str(e))}")
-                      failed_tags.append(tag)
+                  if tag in all_tags:
+                      try:
+                          repo.get_git_ref(f"refs/tags/{tag}").delete()
+                          print(f"✅ 已删除 tag: {tag}")
+                          deleted_count += 1
+                      except GithubException as e:
+                          print(f"❌ 删除 tag 失败: {e.data.get('message', str(e))}")
+                          failed_tags.append(tag)
+                  else:
+                      print(f"⚠️ Tag 不存在: {tag}")
               except Exception as e:
-                  print(f"❌ 删除失败: {str(e)}")
+                  print(f"❌ 删除 release 失败: {str(e)}")
                   failed_tags.append(tag)
 
           print(f"\n📊 删除结果: {deleted_count}/{len(to_delete)} 成功")
           if failed_tags:
-              print("\n⚠️ 以下tag需要手动删除:")
+              print("\n⚠️ 以下 tag 需要手动删除:")
               for tag in failed_tags:
                   print(f"  - {tag}")
                   print(f"    手动删除命令: gh api -X DELETE /repos/{REPO_NAME}/git/refs/tags/{tag}")
