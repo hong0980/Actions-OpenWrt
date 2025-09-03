@@ -54,17 +54,19 @@ jobs:
           KEEP = int(os.getenv('KEEP_PER_TYPE', 20))
           CONFIRM = os.getenv('CONFIRM_DELETE') == 'CONFIRM'
 
+          # 初始化 GitHub 客户端
           gh = Github(auth=Auth.Token(os.getenv('GITHUB_TOKEN')))
           repo = gh.get_repo(REPO_NAME)
 
           def get_release_type(tag_name):
+              """根据 tag 名判断 release 类型"""
               for type_name, patterns in TARGET_TYPES.items():
                   if any(p in tag_name.lower() for p in patterns):
                       return type_name
               return None
 
           def parse_date(tag_name):
-              """从tag名解析日期"""
+              """从 tag 名解析日期"""
               try:
                   parts = tag_name.split('-')
                   if len(parts) >= 3:
@@ -73,12 +75,12 @@ jobs:
               except ValueError:
                   return None
 
-          # 获取所有 tag 名
+          # 获取所有 tags（处理分页）
           print("⏳ 正在获取所有 tags ...")
           all_tags = set()
-          tags = repo.get_tags()
-          for t in tags:
-              all_tags.add(t.name)
+          for tag in repo.get_tags():
+              all_tags.add(tag.name)
+          print(f"📋 获取到 {len(all_tags)} 个 tags")
 
           # 按类型收集 releases
           releases_by_type = defaultdict(list)
@@ -92,7 +94,7 @@ jobs:
               print("ℹ️ 没有找到符合条件的 releases")
               sys.exit(0)
 
-          # 确定要删除的 releases
+          # 确定要删除的 releases 和 tags
           to_delete = []
           for release_type, releases in releases_by_type.items():
               # 按日期排序 (新->旧)
@@ -125,27 +127,32 @@ jobs:
           # 实际删除
           deleted_count = 0
           failed_tags = []
-          for _, release, tag in to_delete:
+          for date, release, tag in to_delete:
               try:
                   print(f"\n🗑 删除 release: {tag}")
                   release.delete_release()
+                  print(f"✅ 已删除 release: {tag}")
+              except GithubException as e:
+                  print(f"❌ 删除 release 失败: {tag} ({e.data.get('message', str(e))})")
+                  failed_tags.append(tag)
+                  continue  # 如果 release 删除失败，继续尝试删除 tag
+
+              # 尝试删除 tag
+              try:
                   if tag in all_tags:
-                      try:
-                          repo.get_git_ref(f"refs/tags/{tag}").delete()
-                          print(f"✅ 已删除 tag: {tag}")
-                          deleted_count += 1
-                      except GithubException as e:
-                          print(f"❌ 删除 tag 失败: {e.data.get('message', str(e))}")
-                          failed_tags.append(tag)
+                      ref = repo.get_git_ref(f"refs/tags/{tag}")
+                      ref.delete()
+                      print(f"✅ 已删除 tag: {tag}")
+                      deleted_count += 1
                   else:
                       print(f"⚠️ Tag 不存在: {tag}")
-              except Exception as e:
-                  print(f"❌ 删除 release 失败: {str(e)}")
+              except GithubException as e:
+                  print(f"❌ 删除 tag 失败: {tag} ({e.data.get('message', str(e))})")
                   failed_tags.append(tag)
 
           print(f"\n📊 删除结果: {deleted_count}/{len(to_delete)} 成功")
           if failed_tags:
-              print("\n⚠️ 以下 tag 需要手动删除:")
+              print("\n⚠️ 以下 tag/release 需要手动删除:")
               for tag in failed_tags:
                   print(f"  - {tag}")
                   print(f"    手动删除命令: gh api -X DELETE /repos/{REPO_NAME}/git/refs/tags/{tag}")
