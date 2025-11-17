@@ -73,7 +73,6 @@ jobs:
       uses: actions/checkout@v5
 
     - name: jlumbroso 整理磁盘
-      continue-on-error: true
       uses: jlumbroso/free-disk-space@main
       if: env.FREE_DISK == 'plus' || env.FREE_DISK == 'free-disk-space'
       with:
@@ -85,7 +84,6 @@ jobs:
         large-packages: true
 
     - name: losetup 整理磁盘
-      continue-on-error: true
       if: env.FREE_DISK == 'plus' || env.FREE_DISK == 'losetup'
       run: |
         [ -f /mnt/swapfile ] && sudo swapoff -a && sudo rm -f /mnt/swapfile
@@ -108,7 +106,6 @@ jobs:
         sudo mount -B $GITHUB_WORKSPACE/tmp /tmp
 
     - name: 安装编译依赖
-      continue-on-error: true
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
@@ -147,18 +144,14 @@ jobs:
 
     - name: 部署
       id: deploy
-      continue-on-error: true
       run: |
         (wget -qO- is.gd/immortalwrt_openwrt || wget -qO- git.io/J6IXO) | bash
         # sudo bash -c 'bash <(curl -s is.gd/immortalwrt_openwrt || curl -s git.io/J6IXO)'
 
     - name: tools
       id: tools
-      continue-on-error: true
       if: env.CACHE_ACTIONS == 'true' && !cancelled()
-      run: |
-        cd openwrt && \
-        make -j$(nproc) toolchain/compile || make -j1 V=s toolchain/compile
+      run: cd openwrt && make -j$(nproc) toolchain/compile || make -j1 V=s toolchain/compile
 
     - name: 保存 Cache
       id: fetch_cache
@@ -183,8 +176,7 @@ jobs:
         fi
 
     - name: Cache 上传到 Release
-      continue-on-error: true
-      if: steps.fetch_cache.conclusion == 'success' && env.OUTPUT_RELEASE == 'true' && !cancelled()
+      if: env.OUTPUT_RELEASE == 'true' && !cancelled()
       uses: softprops/action-gh-release@v2.4.2
       with:
         files: output/*
@@ -194,8 +186,7 @@ jobs:
         name: ${{env.EMOJI}} openwrt-Cache ${{env.EMOJI}}
 
     - name: Cache 上传到 OpenWrt-Cache
-      continue-on-error: true
-      if: steps.fetch_cache.conclusion == 'success' && env.SAVE_CACHE == 'true' && !cancelled()
+      if: env.SAVE_CACHE == 'true' && !cancelled()
       uses: softprops/action-gh-release@v2.4.2
       with:
         name: Cache
