@@ -216,7 +216,7 @@ jobs:
 
     - name: 下载软件包
       continue-on-error: true
-      if: steps.deploy.conclusion == 'success' && !cancelled()
+      # if: steps.deploy.conclusion == 'success' && !cancelled()
       run: |
         cd openwrt
         make package/download -j$(nproc)
@@ -226,7 +226,7 @@ jobs:
     - name: 固件编译
       id: compile
       continue-on-error: true
-      if: steps.deploy.conclusion == 'success' && !cancelled()
+      # if: steps.deploy.conclusion == 'success' && !cancelled()
       run: cd openwrt && make -j$(nproc) || make -j1 V=s
 
     - name: 筛选固件
