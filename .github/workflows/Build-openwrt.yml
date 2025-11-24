@@ -70,7 +70,7 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: jlumbroso 整理磁盘
       uses: jlumbroso/free-disk-space@main
