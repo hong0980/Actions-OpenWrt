@@ -177,7 +177,7 @@ jobs:
 
     - name: Cache 上传到 Release
       if: env.OUTPUT_RELEASE == 'true' && !cancelled()
-      uses: softprops/action-gh-release@v2.4.2
+      uses: softprops/action-gh-release@v2.5.0
       with:
         files: output/*
         body: openwrt-Cache
@@ -187,7 +187,7 @@ jobs:
 
     - name: Cache 上传到 OpenWrt-Cache
       if: env.SAVE_CACHE == 'true' && !cancelled()
-      uses: softprops/action-gh-release@v2.4.2
+      uses: softprops/action-gh-release@v2.5.0
       with:
         name: Cache
         files: output/*
@@ -259,7 +259,7 @@ jobs:
 
     - name: Firmware 上传到 Release
       if: env.upload_firmware == 'true' && env.UPLOAD_RELEASE == 'true' && !cancelled()
-      uses: softprops/action-gh-release@v2.4.2
+      uses: softprops/action-gh-release@v2.5.0
       with:
         files: firmware/*
         body: openwrt-firmware
