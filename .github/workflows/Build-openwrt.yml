@@ -8,7 +8,7 @@ on:
         default: 'openwrt-24.10'
         required: true
         type: choice
-        options: [ master, openwrt-24.10, openwrt-23.05, openwrt-21.02, main ]
+        options: [ master, openwrt-25.12, openwrt-24.10, openwrt-23.05, openwrt-21.02, main ]
 
       target:
         description: '选择要生成的机型：'
