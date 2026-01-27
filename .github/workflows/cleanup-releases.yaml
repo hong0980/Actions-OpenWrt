@@ -1,0 +1,197 @@
+name: 清理 OpenWrt Releases 和 Tags
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_per_type:
+        description: '每种类型保留的最新release数量 (默认20)'
+        required: false
+        default: '20'
+      confirm_delete:
+        description: '必须设置为 "CONFIRM" 才会实际执行删除'
+        required: true
+        default: 'CONFIRM'
+  schedule:
+    - cron: '0 20 15 * *'
+
+jobs:
+  delete-Releases-Tags:
+    runs-on: ubuntu-latest
+    env:
+          TZ: Asia/Shanghai
+    permissions:
+      contents: write
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 设置Python环境
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: '3.13'
+
+      - name: 安装依赖
+        run: pip install PyGithub requests
+
+      - name: 执行清理
+        env:
+          REPO_NAME: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
+          KEEP_PER_TYPE: ${{ inputs.keep_per_type || 20 }}
+          CONFIRM_DELETE: ${{ inputs.confirm_delete || 'DRY-RUN' }}
+        run: |
+          python - <<EOF
+          import os, sys, time, requests
+          from datetime import datetime
+          from collections import defaultdict
+          from github import Auth, Github, GithubException
+
+          # 配置
+          REPO_NAME = os.getenv('REPO_NAME')
+          GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
+          KEEP = int(os.getenv('KEEP_PER_TYPE', 20))
+          CONFIRM = os.getenv('CONFIRM_DELETE') == 'CONFIRM'
+          TARGET_TYPES = {
+              'openwrt': ['openwrt'],
+              'immortalwrt': ['immortalwrt'],
+              'coolsnowwolf': ['coolsnowwolf']
+          }
+          HEADERS = {
+              "Authorization": f"token {GITHUB_TOKEN}",
+              "Accept": "application/vnd.github.v3+json",
+              "User-Agent": "hong0980/Actions-OpenWrt-Cleanup"
+          }
+
+          def parse_date(tag_name):
+              """从 tag 名解析日期，失败时返回远古日期"""
+              try:
+                  parts = tag_name.split('-')
+                  if len(parts) >= 3:
+                      return datetime.strptime('-'.join(parts[:3]), "%Y-%m-%d")
+              except ValueError:
+                  pass
+              return datetime(1970, 1, 1)
+
+          def get_release_type(tag_name):
+              """检查 tag 是否以目标类型开头"""
+              for type_name, patterns in TARGET_TYPES.items():
+                  if any(p in tag_name for p in patterns):
+                      return type_name
+              return None
+
+          def delete_tag(tag_name, failed_items):
+              """删除 tag"""
+              url = f"https://api.github.com/repos/{REPO_NAME}/git/refs/tags/{tag_name}"
+              headers = HEADERS
+              response = requests.get(url, headers=headers)
+              if response.status_code == 200:
+                  tag_data = response.json()
+                  tag_type = 'annotated' if tag_data['object']['type'] == 'tag' else 'lightweight'
+              else:
+                  print(f"🔍 tag {tag_name} 不存在 (状态码: {response.status_code})")
+                  return False
+              for attempt in range(3):
+                  try:
+                      response = requests.delete(url, headers=headers)
+                      if response.status_code in (204, 200):
+                          print(f"✅ 已删除 tag: {tag_name}")
+                          return True
+                      print(f"❌ 删除 tag 失败 (尝试 {attempt + 1}/3): {tag_name} (状态码: {response.status_code}, 响应: {response.text})")
+                      time.sleep(1)
+                  except Exception as e:
+                      print(f"❌ 删除 tag 失败 (尝试 {attempt + 1}/3): {tag_name} ({str(e)})")
+                      time.sleep(1)
+              failed_items.append(('tag', tag_name))
+              print(f"手动删除命令: gh api -X DELETE /repos/{REPO_NAME}/git/refs/tags/{tag_name}")
+              return False
+
+          def main():
+              """主清理逻辑"""
+              if not GITHUB_TOKEN:
+                  print("❌ 错误: GITHUB_TOKEN 未设置")
+                  sys.exit(1)
+
+              # 检查 API 限额
+              try:
+                  response = requests.get("https://api.github.com/rate_limit", headers=HEADERS, timeout=10)
+                  if response.status_code == 200:
+                      remaining = response.json()['rate']['remaining']
+                      print(f"📊 API 限额剩余: {remaining}")
+                      if remaining < 50:
+                          print("⚠️ API 限额不足")
+                          sys.exit(1)
+                  else:
+                      print(f"⚠️ API 限额检查失败: 状态码 {response.status_code}")
+              except Exception as e:
+                  print(f"⚠️ API 限额检查出错: {str(e)}")
+
+              gh = Github(auth=Auth.Token(GITHUB_TOKEN))
+              repo = gh.get_repo(REPO_NAME)
+              failed_items = []
+              deleted_count = 0
+
+              # 获取所有 releases
+              releases_by_type = defaultdict(list)
+              for release in repo.get_releases():
+                  tag = release.tag_name
+                  if tag.endswith('-Cache'):
+                      continue
+                  if release_type := get_release_type(tag):
+                      date = parse_date(tag)
+                      releases_by_type[release_type].append((date, release, tag))
+
+              if not releases_by_type:
+                  print("ℹ️ 没有找到符合条件的 releases")
+                  sys.exit(0)
+
+              # 确定要删除的 releases
+              to_delete_releases = []
+              for release_type, releases in releases_by_type.items():
+                  releases.sort(key=lambda x: x[0], reverse=True)
+                  keep = releases[:KEEP]
+                  delete = releases[KEEP:]
+                  print(f"\n🔵 {release_type} 类型:")
+                  print(f"• 保留最新的 {len(keep)} 个:")
+                  for i, (date, _, tag) in enumerate(keep, 1):
+                      print(f"  {i}. {tag} ({date.date()})")
+                  if delete:
+                      print(f"• 将删除 {len(delete)} 个旧的 releases:")
+                      for date, _, tag in delete:
+                          print(f"{tag} ({date.date()})")
+                      to_delete_releases.extend(delete)
+                  else:
+                      print("• 无需删除 releases (数量未超过保留限制)")
+
+              if not to_delete_releases:
+                  print("\n🟢 没有需要删除的 releases 或 tags")
+                  sys.exit(0)
+
+              if not CONFIRM:
+                  print("\n🛑 试运行完成，如需实际删除请设置 confirm_delete=CONFIRM")
+                  sys.exit(0)
+
+              # 删除 releases 和 tags
+              for date, release, tag in to_delete_releases:
+                  try:
+                      print(f"\n🗑 删除 {tag}")
+                      release.delete_release()
+                      print(f"✅ 已删除 release: {tag}")
+                      deleted_count += 1
+                  except GithubException as e:
+                      print(f"❌ 删除 release 失败: {tag} ({e.data.get('message', str(e))})")
+                      failed_items.append(('release', tag))
+                      continue
+                  if delete_tag(tag, failed_items):
+                      deleted_count += 1
+
+              print(f"\n📊 删除结果: {deleted_count}/{len(to_delete_releases) * 2} 成功")
+              if failed_items:
+                  print("\n⚠️ 以下 release/tag 需要手动删除:")
+                  for item_type, item in failed_items:
+                      print(f"{item_type}: {item}")
+                      if item_type == 'tag':
+                          print(f"手动删除命令: gh api -X DELETE /repos/{REPO_NAME}/git/refs/tags/{item}")
+
+          if __name__ == "__main__":
+              main()
+          EOF

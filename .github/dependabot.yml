@@ -1,0 +1,9 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day: 10  # 每月10号
+      time: "09:00"  # 上午9点
+      timezone: "Asia/Shanghai"  # 上海时间

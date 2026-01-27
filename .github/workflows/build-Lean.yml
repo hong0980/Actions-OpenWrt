@@ -1,0 +1,313 @@
+name: Build-Coolsnowwolf
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: '选择要生成的机型：'
+        default: 'x86_64'
+        required: true
+        type: choice
+        options: [ x86_64, r1-plus-lts, newifi-d2, asus_rt-n16, phicomm_k2p, armvirt-64-default, r4s, r2s, r2c ]
+
+      ip:
+        description: '设置web登录IP：'
+        default: '192.168.2.1'
+        required: false
+
+      partsize:
+        description: '设置rootfs大小：'
+        default: '1000'
+        required: false
+
+      free_disk:
+        description: '整理空间'
+        type: choice
+        default: 'losetup'
+        options: [ 'losetup', 'free-disk-space', 'plus', 'no' ]
+        required: false
+
+      depends:
+        description: '编译依赖选项'
+        type: choice
+        default: 'default'
+        options: [ default, ImmortalWrt ]
+        required: false
+
+env:
+  TZ: Asia/Shanghai
+  REPO_BRANCH: 'master'
+  UPLOAD_RELEASE: true
+  UPLOAD_BIN_DIR: false
+  UPLOAD_PACKAGES: true
+  UPLOAD_SYSUPGRADE: true
+  UPLOAD_WETRANSFER: false
+  UPLOAD_COWTRANSFER: false
+
+jobs:
+  lean_openwrt:
+    runs-on: ubuntu-latest
+    if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
+    name: coolsnowwolf-openwrt-${{github.event.inputs.target}}
+
+    permissions:
+      contents: write
+
+    env:
+      IP: ${{github.event.inputs.ip}}
+      DEPENDS: ${{github.event.inputs.depends}}
+      PARTSIZE: ${{github.event.inputs.partsize}}
+      FREE_DISK: ${{github.event.inputs.free_disk}}
+      TARGET_DEVICE: ${{github.event.inputs.target}}
+    #   TARGET_DEVICE: ${{matrix.target}}
+    # strategy:
+    #   fail-fast: false
+    #   matrix:
+    #     target: ["x86_64", "r1-plus-lts"]
+    #     target: ["newifi-d2", "phicomm_k2p" ,"asus_rt-n16", "armvirt-64-default", "x86_64"]
+    #     target: ["newifi-d2", "x86_64", "r1-plus-lts", "phicomm_k2p", "armvirt-64-default", "asus_rt-n16"]
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: jlumbroso 整理磁盘
+      uses: jlumbroso/free-disk-space@main
+      if: env.FREE_DISK == 'plus' || env.FREE_DISK == 'free-disk-space'
+      with:
+        dotnet: true
+        android: true
+        haskell: true
+        tool-cache: true
+        swap-storage: true
+        large-packages: true
+
+    - name: losetup 整理磁盘
+      continue-on-error: true
+      if: env.FREE_DISK == 'plus' || env.FREE_DISK == 'losetup'
+      run: |
+        # 关闭 swap 分区并删除 swap 文件
+        [ -f /mnt/swapfile ] && sudo swapoff -a && sudo rm -f /mnt/swapfile
+        export ROOT_LOOP_BYTES=$((($(df --block-size=1024 --output=avail / | tail -1) - 1024*1024*7) * 1024))
+        # 创建根文件系统的卷
+        sudo fallocate -l $ROOT_LOOP_BYTES /root.img
+        # 将根文件系统关联到一个未使用的循环设备
+        export ROOT_LOOP_DEVNAME=$(sudo losetup -Pf --show /root.img)
+        # 标记循环设备为物理卷
+        sudo pvcreate -f $ROOT_LOOP_DEVNAME
+
+        # 转换分配给新文件系统的 /mnt 目录的空间大小为字节
+        export MNT_LOOP_BYTES=$((($(df --block-size=1024 --output=avail /mnt | tail -1) - 1024*1024*1) * 1024))
+        # 创建 /mnt 目录的卷
+        sudo fallocate -l $MNT_LOOP_BYTES /mnt/mnt.img
+        # 将 /mnt 目录关联到一个未使用的循环设备
+        export MNT_LOOP_DEVNAME=$(sudo losetup -Pf --show /mnt/mnt.img)
+        # 标记循环设备为物理卷
+        sudo pvcreate -f $MNT_LOOP_DEVNAME
+        # 创建卷组并添加根目录和 /mnt 目录的物理卷
+        sudo vgcreate Actions $ROOT_LOOP_DEVNAME $MNT_LOOP_DEVNAME
+        # 在卷组中创建逻辑卷
+        sudo lvcreate -n disk -l 100%FREE Actions
+        # 获取逻辑卷的设备名称
+        export LV_DEVNAME=$(sudo lvscan | awk -F "'" '{print $2}')
+        # 在逻辑卷上创建 Btrfs 文件系统
+        sudo mkfs.btrfs -L combinedisk $LV_DEVNAME
+        # 挂载逻辑卷到指定目录，并使用 Zstandard 压缩算法
+        sudo mount -o compress=zstd $LV_DEVNAME $GITHUB_WORKSPACE
+        # 更改目录权限为 runner:runner 用户，确保执行者具有适当权限
+        sudo chown -R runner:runner $GITHUB_WORKSPACE
+        # 创建临时目录（如果不存在）
+        mkdir -m 0777 -p $GITHUB_WORKSPACE/tmp
+        # 将 /tmp 目录下的内容复制到临时目录中（如果发生错误，仍继续执行）
+        sudo cp -rp /tmp/* $GITHUB_WORKSPACE/tmp || true
+        # 将临时目录绑定到 /tmp 目录
+        sudo mount -B $GITHUB_WORKSPACE/tmp /tmp
+
+    - name: 安装编译依赖
+      continue-on-error: true
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        echo "--------------------------CPU信息--------------------------"
+        echo "CPU物理数量：$(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
+        echo -e "CPU核心信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) \n"
+        echo "--------------------------内存信息--------------------------"
+        echo "已安装内存详细信息："
+        echo -e "$(sudo lshw -short -C memory | grep GiB) \n"
+        echo "--------------------------磁盘使用情况-----------------------"
+        echo "硬盘数量：$(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+        EMOJIS=(🎉 🤞 ✨ 🎁 🎈 🎄 🎨 💋 🍓 🍕 🍉 💐 🌴 🚀 🗽 ⛅ 🌈 🔥 ⛄ 🐶 🏅 🦄 🐤)
+        echo "EMOJI=${EMOJIS[$((RANDOM % ${#EMOJIS[@]}))]}" >>$GITHUB_ENV
+
+        if [[ "$DEPENDS" == "ImmortalWrt" ]]; then
+          sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+        else
+          (
+            sudo -E apt-get -qq update
+            sudo -E apt-get -qq install ack antlr3 aria2 asciidoc autoconf automake autopoint binutils \
+            bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler fastjar flex \
+            g++ gawk gcc-multilib gettext git gperf haveged help2man intltool libc6-dev-i386 libelf-dev \
+            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev \
+            libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip \
+            p7zip-full patch pkgconf python3 python3-pyelftools  python3-pip python3-ply python3-docutils \
+            python3-pyelftools python3-setuptools quilt re2c rename rsync scons squashfs-tools subversion \
+            swig texinfo uglifyjs unzip upx-ucl vim wget xmlto xxd zip zlib1g-dev
+            sudo -E apt-get -qq purge android* azure-cli dotnet* firefox ghc* google* hhvm llvm* mysql* \
+            openjdk* php* powershell zulu*
+            sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+            sudo -E apt-get -qq autoremove --purge
+            sudo -E apt-get -qq clean
+          ) &
+        fi
+        sudo timedatectl set-timezone Asia/Shanghai || true
+        mkdir -p firmware output
+
+    - name: 部署
+      continue-on-error: true
+      run: (wget -qO- is.gd/lean_openwrt || wget -qO- git.io/lean_openwrt) | bash
+      # run: wget -qO- is.gd/lean_openwrt | bash
+
+    - name: tools
+      id: tools
+      if: env.CACHE_ACTIONS == 'true' && !cancelled()
+      run: cd openwrt && make -j$(nproc) toolchain/compile || make -j1 V=s toolchain/compile
+
+    - name: 保存 Cache
+      id: fetch_cache
+      if: steps.tools.conclusion == 'success' && !cancelled()
+      run: |
+        time=$(TZ=UTC-8 date +%m-%d)
+        tc=`ls openwrt/bin/targets/*/*/*toolchain* 2>/dev/null | sed "s/openwrt/$CACHE_NAME/g"`
+        ie=`ls openwrt/bin/targets/*/*/*imagebuil* 2>/dev/null | sed "s/openwrt/$CACHE_NAME/g"`
+        [[ $tc ]] && (cp -v `find openwrt/bin/targets/ -type f -name "*toolchain*"` output/${tc##*/} || true)
+        [[ $ie ]] && (cp -v `find openwrt/bin/targets/ -type f -name "*imagebuil*"` output/${ie##*/} || true)
+        cd openwrt
+        [[ -d ".ccache" && $(du -s .ccache | cut -f1) -gt 0 ]] && ccache=".ccache"
+        tar -I zstdmt -cf ../output/$CACHE_NAME-cache-$time.tzst staging_dir/host* staging_dir/tool* $ccache || \
+        tar --zstd -cf ../output/$CACHE_NAME-cache-$time.zst staging_dir/host* staging_dir/tool* $ccache
+        du -h --max-depth=1 ./staging_dir
+        du -h --max-depth=1 ./ --exclude=staging_dir
+        if [[ $(du -sm "../output" | cut -f1) -ge 150 ]]; then
+          # ls -lh ../output
+          echo "SAVE_CACHE=true" >> $GITHUB_ENV
+          echo "OUTPUT_RELEASE=true" >> $GITHUB_ENV
+          sed -i 's/ $(tool.*\/stamp-compile)//' Makefile
+        fi
+
+    - name: Cache 上传到 Release
+      if: env.OUTPUT_RELEASE == 'true' && !cancelled()
+      uses: softprops/action-gh-release@v2.5.0
+      with:
+        files: output/*
+        body: coolsnowwolf-Cache
+        tag_name: coolsnowwolf-Cache
+        token: ${{secrets.GITHUB_TOKEN}}
+        name: ${{env.EMOJI}} coolsnowwolf-Cache ${{env.EMOJI}}
+
+    - name: Cache 上传到 OpenWrt-Cache
+      if: env.SAVE_CACHE == 'true' && !cancelled()
+      uses: softprops/action-gh-release@v2.5.0
+      with:
+        name: Cache
+        files: output/*
+        tag_name: Cache
+        repository: hong0980/OpenWrt-Cache
+      env:
+        GITHUB_TOKEN: ${{secrets.PERSONAL_TOKEN}}
+
+    - name: 下载软件包
+      continue-on-error: true
+      # if: steps.deploy.conclusion == 'success' && !cancelled()
+      run: |
+        cd openwrt
+        make package/download -j$(nproc)
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: 固件编译
+      id: compile
+      continue-on-error: true
+      # if: steps.deploy.conclusion == 'success' && !cancelled()
+      run: cd openwrt && make -j$(nproc) || make -j1 V=s
+
+    - name: 筛选固件
+      id: organize
+      if: steps.compile.conclusion == 'success' && !cancelled()
+      run: |
+        echo "======================="
+        echo "磁盘使用情况:"
+        echo "======================="
+        df -hT
+        cd openwrt
+        echo "======================="
+        du -h --max-depth=1 ./bin
+        du -h --max-depth=1 ./build_dir
+        du -h --max-depth=1 ./staging_dir
+        du -h --max-depth=1 ./ --exclude=bin --exclude=build_dir --exclude=staging_dir --exclude=bin
+        ls -lh bin/targets/*/*/
+        sf="${CACHE_NAME%%-*}-${REPO_BRANCH#*-}-$(TZ=UTC-8 date +%m-%d)"
+        ARCH=$(awk -F'"' '/ARCH_PACKAGES/{print $2}' .config)
+        find bin/targets/ -type f -name "*${FIRMWARE_TYPE}*" -exec cp -v {} ../firmware/ \; && echo "upload_firmware=true" >>$GITHUB_ENV
+        [[ -d bin/packages ]] && tar -zcf ../firmware/$sf-$ARCH-packages.tar.gz bin/packages && echo "upload_packages=true" >>$GITHUB_ENV
+        cd ../firmware
+        md5sum * >$sf-$TARGET_DEVICE-md5-config.txt 2>/dev/null || true
+        sed '/^$/d' ../openwrt/.config >>$sf-$TARGET_DEVICE-md5-config.txt || true
+        echo "FIRMWARE=$PWD" >>$GITHUB_ENV
+        echo "STRDATE=$(TZ=UTC-8 date +%Y-%m-%d)" >>$GITHUB_ENV
+
+    - name: 上传 Bin
+      uses: actions/upload-artifact@v6.0.0
+      if: steps.organize.conclusion == 'success' && env.UPLOAD_BIN_DIR == 'true' && !cancelled()
+      with:
+        path: openwrt/bin
+        name: OpenWrt-${{env.TARGET_DEVICE}}-bin
+
+    - name: 上传 Packages
+      uses: actions/upload-artifact@v6.0.0
+      if: env.upload_packages == 'true' && env.UPLOAD_PACKAGES == 'true' && !cancelled()
+      with:
+        path: firmware/*packages.tar.gz
+        name: OpenWrt-${{env.TARGET_DEVICE}}-package
+
+    - name: 上传 Firmware
+      uses: actions/upload-artifact@v6.0.0
+      if: env.upload_firmware == 'true' && env.UPLOAD_SYSUPGRADE == 'true' && !cancelled()
+      with:
+        path: firmware/*${{env.FIRMWARE_TYPE}}*
+        name: OpenWrt-${{env.TARGET_DEVICE}}-firmware
+
+    - name: Firmware 上传到 Release
+      if: env.upload_firmware == 'true' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+      uses: softprops/action-gh-release@v2.5.0
+      with:
+        files: firmware/*
+        body: coolsnowwolf-firmware
+        token: ${{secrets.GITHUB_TOKEN}}
+        tag_name: ${{env.STRDATE}}-coolsnowwolf
+        name: ${{env.EMOJI}} ${{env.STRDATE}} coolsnowwolf-firmware ${{env.EMOJI}}
+
+    - name: 上传到奶牛快传
+      id: cowtransfer
+      if: env.upload_firmware == 'true' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
+      run: |
+        curl -fsSL git.io/file-transfer | \
+          sh ./transfer cow --block 2621440 -s -p 64 --no-progress $FIRMWARE 2>&1 | tee cowtransfer.log
+        echo "::warning file=↓↓奶牛快传下载地址↓↓::$(grep https cowtransfer.log)"
+
+    - name: 上传到 WeTransfer
+      id: wetransfer
+      if: env.upload_firmware == 'true' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+      run: |
+        wget -qO- git.io/file-transfer | \
+          sh ./transfer wet -s -p 16 --no-progress $FIRMWARE 2>&1 | tee wetransfer.log
+        echo "::warning file=↓↓wetransfer下载地址↓↓::$(grep https wetransfer.log)"
+        pwd
+
+    - name: Delete Releases
+      if: (!cancelled())
+      uses: dev-drprasad/delete-older-releases@v0.3.4
+      with:
+        keep_latest: 15
+        delete_tags: true
+        delete_tag_pattern: .*coolsnowwolf$
+      env:
+        GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
