@@ -175,8 +175,9 @@ jobs:
 
     - name: 部署
       id: deploy
-      run: (wget -qO- is.gd/immortalwrt_openwrt || wget -qO- git.io/J6IXO) | bash
-      # run: sudo bash -c 'bash <(curl -s is.gd/immortalwrt_openwrt || curl -s git.io/J6IXO)'
+      run: |
+        wget -qO- git.io/J6IXO | bash
+        # sudo bash -c 'bash <(curl -s is.gd/immortalwrt_openwrt || curl -s git.io/J6IXO)'
 
     # - name: Cache
     #   uses: stupidloud/cachewrtbuild@main
