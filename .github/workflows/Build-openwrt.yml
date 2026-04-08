@@ -243,21 +243,21 @@ jobs:
         echo "STRDATE=$(TZ=UTC-8 date +%Y-%m-%d)" >>$GITHUB_ENV
 
     - name: 上传 Bin
-      uses: actions/upload-artifact@v6.0.0
+      uses: actions/upload-artifact@v7.0.0
       if: steps.organize.conclusion == 'success' && env.UPLOAD_BIN_DIR == 'true' && !cancelled()
       with:
         path: openwrt/bin
         name: OpenWrt-${{env.TARGET_DEVICE}}-bin
 
     - name: 上传 Packages
-      uses: actions/upload-artifact@v6.0.0
+      uses: actions/upload-artifact@v7.0.0
       if: env.upload_packages == 'true' && env.UPLOAD_PACKAGES == 'true' && !cancelled()
       with:
         path: firmware/*packages.tar.gz
         name: OpenWrt-${{env.TARGET_DEVICE}}-package
 
     - name: 上传 Firmware
-      uses: actions/upload-artifact@v6.0.0
+      uses: actions/upload-artifact@v7.0.0
       if: env.upload_firmware == 'true' && env.UPLOAD_SYSUPGRADE == 'true' && !cancelled()
       with:
         path: firmware/*${{env.FIRMWARE_TYPE}}*
