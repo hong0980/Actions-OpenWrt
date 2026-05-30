@@ -192,15 +192,29 @@ jobs:
         name: ${{env.EMOJI}} openwrt-Cache ${{env.EMOJI}}
 
     - name: Cache 上传到 OpenWrt-Cache
+      continue-on-error: true
       if: env.SAVE_CACHE == 'true' && !cancelled()
-      uses: softprops/action-gh-release@v3.0.0
-      with:
-        name: Cache
-        files: output/*
-        tag_name: Cache
-        repository: hong0980/OpenWrt-Cache
       env:
-        GITHUB_TOKEN: ${{secrets.PERSONAL_TOKEN}}
+        GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
+      run: |
+        shopt -s nullglob
+        files=(output/*)
+        [[ ${#files[@]} -eq 0 ]] && {
+          echo "::warning::output/ 目录为空，跳过上传"
+          exit 0
+        }
+
+        # release 不存在则先建空的
+        gh release view Cache -R hong0980/OpenWrt-Cache &>/dev/null \
+          || gh release create Cache \
+               -R hong0980/OpenWrt-Cache \
+               --title "Cache" \
+               --notes ""
+
+        # --clobber 同名文件直接覆盖
+        gh release upload Cache \
+          -R hong0980/OpenWrt-Cache \
+          --clobber "${files[@]}"
 
     - name: 下载软件包
       continue-on-error: true
