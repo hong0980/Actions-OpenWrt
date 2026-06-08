@@ -183,9 +183,7 @@ jobs:
           # ls -lh ../output
           echo "SAVE_CACHE=true" >> $GITHUB_ENV
           echo "OUTPUT_RELEASE=true" >> $GITHUB_ENV
-          mkdir -p staging_dir/host/stamp staging_dir/toolchain/stamp
-          touch staging_dir/host/stamp/.compile_installed 2>/dev/null || true
-          touch staging_dir/toolchain/stamp/.compile_installed 2>/dev/null || true
+          sed -i 's/ $(tool.*\/stamp-compile)//' Makefile
         fi
 
     - name: Cache 上传到 Release
