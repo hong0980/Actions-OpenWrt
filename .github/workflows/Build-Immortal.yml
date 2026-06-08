@@ -140,13 +140,20 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
       run: |
         echo "--------------------------CPU信息--------------------------"
-        echo "CPU物理数量：$(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
-        echo -e "CPU核心信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) \n"
+        echo "CPU物理数量：$(lscpu | grep "Socket(s):" | awk '{print $2}')"
+        echo "CPU核心数量：$(lscpu | grep "^CPU(s):" | awk '{print $2}')"
+        echo "CPU型号信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c | sed 's/^[ \t]*//')"
         echo "--------------------------内存信息--------------------------"
-        echo "已安装内存详细信息："
-        echo -e "$(sudo lshw -short -C memory | grep GiB) \n"
+        echo "当前系统内存总量："
+        free -h
+        echo "已安装内存硬件详细信息："
+        sudo lshw -short -C memory | grep -E "memory|GiB|GB" || echo "无法通过 lshw 获取详细内存"
         echo "--------------------------磁盘使用情况-----------------------"
-        echo "硬盘数量：$(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+        echo "实际检测到的磁盘设备："
+        lsblk -d -n -o NAME,SIZE,TYPE | grep disk
+        echo "硬盘总数量：$(lsblk -d -n -o TYPE | grep disk | wc -l)"
+        echo ""
+        df -hT
         EMOJIS=(🎉 🤞 ✨ 🎁 🎈 🎄 🎨 💋 🍓 🍕 🍉 💐 🌴 🚀 🗽 ⛅ 🌈 🔥 ⛄ 🐶 🏅 🦄 🐤)
         echo "EMOJI=${EMOJIS[$((RANDOM % ${#EMOJIS[@]}))]}" >>$GITHUB_ENV
 
