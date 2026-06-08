@@ -186,16 +186,6 @@ jobs:
         wget -qO- git.io/J6IXO | bash
         # sudo bash -c 'bash <(curl -s is.gd/immortalwrt_openwrt || curl -s git.io/J6IXO)'
 
-    # - name: Cache
-    #   uses: stupidloud/cachewrtbuild@main
-    #   continue-on-error: true
-    #   if: env.CACHE_ACTIONS == 'true'
-    #   with:
-    #     ccache: 'true'
-    #     clean: ${{env.CLEAN}}
-    #     mixkey: ${{env.CACHE_NAME}}
-    #     prefix: ${{github.workspace}}/openwrt
-
     - name: tools
       id: tools
       if: env.CACHE_ACTIONS == 'true' && !cancelled()
@@ -206,11 +196,9 @@ jobs:
       if: steps.tools.conclusion == 'success' && !cancelled()
       run: |
         time=$(TZ=UTC-8 date +%m-%d)
-        tc=`ls openwrt/bin/targets/*/*/*toolchain* 2>/dev/null | sed "s/openwrt/$CACHE_NAME/g"`
-        ie=`ls openwrt/bin/targets/*/*/*imagebuil* 2>/dev/null | sed "s/openwrt/$CACHE_NAME/g"`
-        [[ $tc ]] && (cp -v `find openwrt/bin/targets/ -type f -name "*toolchain*"` output/${tc##*/} || true)
-        [[ $ie ]] && (cp -v `find openwrt/bin/targets/ -type f -name "*imagebuil*"` output/${ie##*/} || true)
+        find openwrt/bin/targets/ -type f \( -name "*toolchain*" -o -name "*imagebuil*" \) -exec cp {} output/ \; 2>/dev/null || true
         cd openwrt
+        ccache=""
         [[ -d ".ccache" && $(du -s .ccache | cut -f1) -gt 0 ]] && ccache=".ccache"
         tar -I zstdmt -cf ../output/$CACHE_NAME-cache-$time.tzst staging_dir/host* staging_dir/tool* $ccache || \
         tar --zstd -cf ../output/$CACHE_NAME-cache-$time.zst staging_dir/host* staging_dir/tool* $ccache
@@ -220,7 +208,9 @@ jobs:
           # ls -lh ../output
           echo "SAVE_CACHE=true" >> $GITHUB_ENV
           echo "OUTPUT_RELEASE=true" >> $GITHUB_ENV
-          sed -i 's/ $(tool.*\/stamp-compile)//' Makefile
+          mkdir -p staging_dir/host/stamp staging_dir/toolchain/stamp
+          touch staging_dir/host/stamp/.compile_installed 2>/dev/null || true
+          touch staging_dir/toolchain/stamp/.compile_installed 2>/dev/null || true
         fi
 
     - name: Cache 上传到 Release
@@ -246,14 +236,12 @@ jobs:
           exit 0
         }
 
-        # release 不存在则先建空的
         gh release view Cache -R hong0980/OpenWrt-Cache &>/dev/null \
           || gh release create Cache \
                -R hong0980/OpenWrt-Cache \
                --title "Cache" \
                --notes ""
 
-        # --clobber 同名文件直接覆盖
         gh release upload Cache \
           -R hong0980/OpenWrt-Cache \
           --clobber "${files[@]}"
