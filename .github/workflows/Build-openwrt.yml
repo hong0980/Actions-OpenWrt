@@ -1,0 +1,340 @@
+name: Build-openwrt
+run-name: openwrt-${{ inputs.branch }}-${{ inputs.target == 'custom' && inputs.custom_target || inputs.target }}
+# run-name: openwrt-${{ inputs.branch == 'openwrt-25.12' && '25.12' || inputs.branch == 'openwrt-24.10' && '24.10' || inputs.branch == 'openwrt-23.05' && '23.05' || inputs.branch == 'openwrt-21.02' && '21.02' || inputs.branch }}-${{ inputs.target == 'custom' && inputs.custom_target || inputs.target }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: '选择的分支：'
+        default: 'openwrt-24.10'
+        required: true
+        type: choice
+        options: [ master, openwrt-25.12, openwrt-24.10, openwrt-23.05, openwrt-21.02, main ]
+
+      target:
+        description: '选择机型 (自定义请选 "custom")'
+        default: 'x86_64'
+        required: true
+        type: choice
+        options: [ x86_64, 360T7, h3c-nx30-pro, xiaomi-ax3000t, r1-plus-lts, newifi-d2, asus_rt-n16, phicomm_k2p, armvirt-64-default, r4s, r2s, r2c, custom ]
+
+      custom_target:
+        description: '手动输入机型 (仅在上方选 custom 时填写)'
+        default: ''
+        required: false
+        type: string
+
+      ip:
+        description: '设置web登录IP：'
+        default: '192.168.2.1'
+        required: false
+
+      partsize:
+        description: '设置rootfs大小：'
+        default: '1000'
+        required: false
+
+      free_disk:
+        description: '整理空间'
+        type: choice
+        default: 'losetup'
+        options: [ 'losetup', 'free-disk-space', 'plus', 'no' ]
+        required: false
+
+      depends:
+        description: '编译依赖选项'
+        type: choice
+        default: 'default'
+        options: [ default, ImmortalWrt ]
+        required: false
+
+env:
+  TZ: Asia/Shanghai
+  UPLOAD_RELEASE: true
+  UPLOAD_BIN_DIR: false
+  UPLOAD_PACKAGES: true
+  UPLOAD_SYSUPGRADE: true
+  UPLOAD_WETRANSFER: false
+  UPLOAD_COWTRANSFER: false
+
+jobs:
+  openwrt:
+    runs-on: ubuntu-latest
+    if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
+    name: openwrt-${{github.event.inputs.branch}}-${{github.event.inputs.target == 'custom' && github.event.inputs.custom_target || github.event.inputs.target}}
+
+    permissions:
+      contents: write
+
+    env:
+      REPO: 'openwrt'
+      IP: ${{github.event.inputs.ip}}
+      DEPENDS: ${{github.event.inputs.depends}}
+      PARTSIZE: ${{github.event.inputs.partsize}}
+      REPO_BRANCH: ${{github.event.inputs.branch}}
+      FREE_DISK: ${{github.event.inputs.free_disk}}
+      TARGET_DEVICE: ${{github.event.inputs.target == 'custom' && github.event.inputs.custom_target || github.event.inputs.target}}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+
+    - name: jlumbroso 整理磁盘
+      uses: jlumbroso/free-disk-space@main
+      if: env.FREE_DISK == 'plus' || env.FREE_DISK == 'free-disk-space'
+      with:
+        dotnet: true
+        android: true
+        haskell: true
+        tool-cache: true
+        swap-storage: true
+        large-packages: true
+
+    - name: losetup 整理磁盘
+      if: env.FREE_DISK == 'plus' || env.FREE_DISK == 'losetup'
+      run: |
+        sudo swapoff -a || true
+        sudo rm -f /mnt/swapfile || true
+
+        ROOT_FREE_KB=$(df --block-size=1024 --output=avail / | tail -1)
+        ROOT_LOOP_BYTES=$(( (ROOT_FREE_KB - 7*1024*1024) * 1024 ))
+        sudo fallocate -l "$ROOT_LOOP_BYTES" /root.img
+        ROOT_LOOP_DEV=$(sudo losetup -Pf --show /root.img)
+
+        MNT_FREE_KB=$(df --block-size=1024 --output=avail /mnt | tail -1)
+        MNT_LOOP_BYTES=$(( (MNT_FREE_KB - 1*1024*1024) * 1024 ))
+        sudo fallocate -l "$MNT_LOOP_BYTES" /mnt/mnt.img
+        MNT_LOOP_DEV=$(sudo losetup -Pf --show /mnt/mnt.img)
+
+        sudo pvcreate -ff -y "$ROOT_LOOP_DEV" "$MNT_LOOP_DEV"
+        sudo vgcreate Actions "$ROOT_LOOP_DEV" "$MNT_LOOP_DEV"
+        sudo lvcreate -n disk -l 100%FREE Actions
+
+        LV_DEV=$(sudo lvdisplay -C -o lv_path --noheadings | tr -d ' ')
+        sudo mkfs.btrfs -L combinedisk "$LV_DEV"
+        sudo mount -o compress=zstd "$LV_DEV" "$GITHUB_WORKSPACE"
+        sudo chown -R runner:runner "$GITHUB_WORKSPACE"
+
+        mkdir -m 0777 -p "$GITHUB_WORKSPACE/tmp"
+        sudo cp -rp /tmp/* "$GITHUB_WORKSPACE/tmp" 2>/dev/null || true
+        sudo mount -B "$GITHUB_WORKSPACE/tmp" /tmp
+
+    - name: 安装编译依赖
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        echo "--------------------------CPU信息--------------------------"
+        echo "CPU物理数量：$(lscpu | grep "Socket(s):" | awk '{print $2}')"
+        echo "CPU核心数量：$(lscpu | grep "^CPU(s):" | awk '{print $2}')"
+        echo "CPU型号信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c | sed 's/^[ \t]*//')"
+        echo "--------------------------内存信息--------------------------"
+        echo "当前系统内存总量："
+        free -h
+        echo "已安装内存硬件详细信息："
+        sudo lshw -short -C memory | grep -E "memory|GiB|GB" || echo "无法通过 lshw 获取详细内存"
+        echo "--------------------------磁盘使用情况-----------------------"
+        echo "实际检测到的磁盘设备："
+        lsblk -d -n -o NAME,SIZE,TYPE | grep disk
+        echo "硬盘总数量：$(lsblk -d -n -o TYPE | grep disk | wc -l)"
+        echo ""
+        df -hT
+        EMOJIS=(🎉 🤞 ✨ 🎁 🎈 🎄 🎨 💋 🍓 🍕 🍉 💐 🌴 🚀 🗽 ⛅ 🌈 🔥 ⛄ 🐶 🏅 🦄 🐤)
+        echo "EMOJI=${EMOJIS[$((RANDOM % ${#EMOJIS[@]}))]}" >>$GITHUB_ENV
+
+        if [[ "$DEPENDS" == "ImmortalWrt" ]]; then
+          sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+        else
+          (
+            sudo apt update -y
+            sudo apt full-upgrade -y
+            sudo apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gcc-multilib g++-multilib gettext \
+            genisoimage git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev \
+            libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool llvm lrzsz libnsl-dev ninja-build p7zip p7zip-full patch pkgconf \
+            python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion \
+            swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+            sudo -E apt-get -qq purge android* azure-cli dotnet* firefox ghc* google* hhvm mysql* \
+            openjdk* php* powershell zulu*
+            sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+            sudo -E apt-get -qq autoremove --purge
+            sudo -E apt-get -qq clean
+          ) &
+        fi
+        sudo timedatectl set-timezone Asia/Shanghai || true
+        mkdir -p firmware output
+
+    - name: 部署
+      id: deploy
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        wget -qO- git.io/J6IXO | bash
+        # sudo bash -c 'bash <(curl -s is.gd/immortalwrt_openwrt || curl -s git.io/J6IXO)'
+
+    - name: tools
+      id: tools
+      if: env.CACHE_ACTIONS == 'true' && !cancelled()
+      run: cd openwrt && make -j$(nproc) toolchain/compile || make -j1 V=s toolchain/compile
+
+    - name: 保存 Cache
+      id: fetch_cache
+      if: steps.tools.conclusion == 'success' && !cancelled()
+      run: |
+        find openwrt/bin/targets/ -type f \( -name "*toolchain*" -o -name "*imagebuil*" \) -exec cp {} output/ \; 2>/dev/null || true
+        cd openwrt
+        ccache=""
+        [[ -d ".ccache" && $(du -s .ccache | cut -f1) -gt 0 ]] && ccache=".ccache"
+        tar -I zstdmt -cf ../output/$CACHE_NAME-cache.tzst staging_dir/host* staging_dir/tool* $ccache || \
+        tar --zstd -cf ../output/$CACHE_NAME-cache.zst staging_dir/host* staging_dir/tool* $ccache
+        du -h --max-depth=1 ./staging_dir
+        du -h --max-depth=1 ./ --exclude=staging_dir
+        if [[ $(du -sm "../output" | cut -f1) -ge 150 ]]; then
+          # ls -lh ../output
+          echo "SAVE_CACHE=true" >> $GITHUB_ENV
+          # echo "OUTPUT_RELEASE=true" >> $GITHUB_ENV
+          sed -i 's/ $(tool.*\/stamp-compile)//' Makefile
+        fi
+
+    - name: Cache 上传到 OpenWrt-Cache
+      id: upload_cache
+      if: env.SAVE_CACHE == 'true' && !cancelled()
+      continue-on-error: true
+      uses: softprops/action-gh-release@v3.0.2
+      with:
+        repository: hong0980/OpenWrt-Cache
+        token: ${{ secrets.PERSONAL_TOKEN }}
+        tag_name: Cache
+        name: Cache
+        body: ""
+        files: output/*
+        fail_on_unmatched_files: false
+
+    # - name: Cache 上传到 OpenWrt-Cache (gh 兜底)
+    #   if: steps.upload_cache.outcome == 'failure' && !cancelled()
+    #   continue-on-error: true
+    #   env:
+    #     GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
+    #   run: |
+    #     shopt -s nullglob
+    #     files=(output/*)
+    #     [[ ${#files[@]} -eq 0 ]] && exit 0
+    #     gh release view   Cache -R hong0980/OpenWrt-Cache &>/dev/null || \
+    #     gh release create Cache -R hong0980/OpenWrt-Cache --title "Cache" --notes ""
+    #     gh release upload Cache -R hong0980/OpenWrt-Cache --clobber "${files[@]}" || \
+    #     echo "OUTPUT_RELEASE=true" >> "$GITHUB_ENV"
+
+    - name: Cache 上传到 Release
+      continue-on-error: true
+      # if: env.SAVE_CACHE == 'true' && env.OUTPUT_RELEASE == 'true' && !cancelled()
+      if: steps.upload_cache.outcome == 'failure' && !cancelled()
+      uses: softprops/action-gh-release@v3.0.2
+      with:
+        files: output/*
+        body: openwrt-Cache
+        tag_name: openwrt-Cache
+        token: ${{ secrets.GITHUB_TOKEN }}
+        name: ${{ env.EMOJI }} openwrt-Cache ${{ env.EMOJI }}
+
+    - name: 下载软件包
+      continue-on-error: true
+      if: steps.deploy.outcome == 'success' && !cancelled()
+      run: |
+        cd openwrt
+        make package/download -j$(nproc)
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: 固件编译
+      id: compile
+      continue-on-error: true
+      if: success() && steps.deploy.outcome == 'success' && !cancelled()
+      run: cd openwrt && make -j$(nproc) || make -j1 V=s
+
+    - name: 筛选固件
+      id: organize
+      if: steps.compile.outcome == 'success' && !cancelled()
+      run: |
+        echo "======================="
+        echo "磁盘使用情况:"
+        echo "======================="
+        df -hT
+        cd openwrt
+        echo "======================="
+        du -h --max-depth=1 ./bin
+        du -h --max-depth=1 ./build_dir
+        du -h --max-depth=1 ./staging_dir
+        du -h --max-depth=1 ./ --exclude=bin --exclude=build_dir --exclude=staging_dir --exclude=bin
+        ls -lh bin/targets/*/*/
+        sf="${CACHE_NAME%%-*}-${REPO_BRANCH#*-}-$(TZ=UTC-8 date +%m-%d)"
+        ARCH=$(awk -F'"' '/ARCH_PACKAGES/{print $2}' .config)
+        find bin/targets/ -type f -name "*${FIRMWARE_TYPE}*" -exec cp -v {} ../firmware/ \; && echo "upload_firmware=true" >>$GITHUB_ENV
+        [[ -d bin/packages ]] && tar -zcf ../firmware/$sf-$ARCH-packages.tar.gz bin/packages && echo "upload_packages=true" >>$GITHUB_ENV
+        cd ../firmware
+        md5sum * >$sf-$TARGET_DEVICE-md5-config.txt 2>/dev/null || true
+        sed '/^$/d' ../openwrt/.config >>$sf-$TARGET_DEVICE-md5-config.txt || true
+        echo "FIRMWARE=$PWD" >>$GITHUB_ENV
+        echo "STRDATE=$(TZ=UTC-8 date +%Y-%m-%d)" >>$GITHUB_ENV
+
+    - name: 上传 Bin
+      uses: actions/upload-artifact@v7.0.1
+      if: steps.organize.conclusion == 'success' && env.UPLOAD_BIN_DIR == 'true' && !cancelled()
+      with:
+        path: openwrt/bin
+        name: OpenWrt-${{env.TARGET_DEVICE}}-bin
+
+    - name: 上传 Packages
+      uses: actions/upload-artifact@v7.0.1
+      if: env.upload_packages == 'true' && env.UPLOAD_PACKAGES == 'true' && !cancelled()
+      with:
+        path: firmware/*packages.tar.gz
+        name: OpenWrt-${{env.TARGET_DEVICE}}-package
+
+    - name: 上传 Firmware
+      uses: actions/upload-artifact@v7.0.1
+      if: env.upload_firmware == 'true' && env.UPLOAD_SYSUPGRADE == 'true' && !cancelled()
+      with:
+        path: firmware/*${{env.FIRMWARE_TYPE}}*
+        name: OpenWrt-${{env.TARGET_DEVICE}}-firmware
+
+    - name: Firmware 上传到 Release
+      if: env.upload_firmware == 'true' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+      uses: softprops/action-gh-release@v3.0.2
+      with:
+        files: firmware/*
+        body: openwrt-firmware
+        token: ${{secrets.GITHUB_TOKEN}}
+        tag_name: ${{env.STRDATE}}-openwrt
+        name: ${{env.EMOJI}} ${{env.STRDATE}} openwrt-firmware ${{env.EMOJI}}
+
+    - name: 上传到奶牛快传
+      id: cowtransfer
+      if: env.upload_firmware == 'true' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
+      run: |
+        curl -fsSL git.io/file-transfer | \
+          sh ./transfer cow --block 2621440 -s -p 64 --no-progress $FIRMWARE 2>&1 | tee cowtransfer.log
+        echo "::warning file=↓↓奶牛快传下载地址↓↓::$(grep https cowtransfer.log)"
+
+    - name: 上传到 WeTransfer
+      id: wetransfer
+      if: env.upload_firmware == 'true' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+      run: |
+        wget -qO- git.io/file-transfer | \
+          sh ./transfer wet -s -p 16 --no-progress $FIRMWARE 2>&1 | tee wetransfer.log
+        echo "::warning file=↓↓wetransfer下载地址↓↓::$(grep https wetransfer.log)"
+        pwd
+
+    - name: Delete old releases
+      if: ${{ !cancelled() }}
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release list --repo "${{ github.repository }}" --limit 100 \
+          --json tagName,createdAt \
+          --jq '[.[] | select(.tagName | endswith("-openwrt"))] | sort_by(.createdAt) | reverse | .[15:] | .[].tagName' |
+        while IFS= read -r tag; do
+          echo "Deleting release and tag: $tag"
+          gh release delete "$tag" --repo "${{ github.repository }}" --cleanup-tag -y
+        done
