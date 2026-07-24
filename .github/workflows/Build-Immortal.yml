@@ -54,7 +54,6 @@ on:
         required: false
 
 env:
-  TZ: Asia/Shanghai
   UPLOAD_RELEASE: true
   UPLOAD_BIN_DIR: false
   UPLOAD_PACKAGES: true
@@ -73,6 +72,7 @@ jobs:
 
     env:
       REPO: 'immortalwrt'
+      TZ: Asia/Shanghai
       IP: ${{github.event.inputs.ip}}
       DEPENDS: ${{github.event.inputs.depends}}
       PARTSIZE: ${{github.event.inputs.partsize}}
@@ -128,6 +128,8 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
+        sudo timedatectl set-timezone Asia/Shanghai
+        timedatectl status
         echo "--------------------------CPU信息--------------------------"
         echo "CPU物理数量：$(lscpu | grep "Socket(s):" | awk '{print $2}')"
         echo "CPU核心数量：$(lscpu | grep "^CPU(s):" | awk '{print $2}')"
