@@ -20,18 +20,18 @@ jobs:
           echo "下载到的文件数："
           ls -la assets | wc -l
 
-      - name: 打包 OpenWrt-Cache 仓库内的 workflow 文件
-        env:
-          GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
-        run: |
-          git clone --depth=1 https://x-access-token:${GH_TOKEN}@github.com/hong0980/OpenWrt-Cache.git repo-src
-          if [ -d repo-src/.github/workflows ]; then
-            tar -czf assets/workflows-backup.tar.gz -C repo-src .github
-            echo "workflow 文件打包完成："
-            tar -tzf assets/workflows-backup.tar.gz
-          else
-            echo "未发现 .github/workflows 目录，跳过打包"
-          fi
+      # - name: 打包 OpenWrt-Cache 仓库内的 workflow 文件
+      #   env:
+      #     GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
+      #   run: |
+      #     git clone --depth=1 https://x-access-token:${GH_TOKEN}@github.com/hong0980/OpenWrt-Cache.git repo-src
+      #     if [ -d repo-src/.github/workflows ]; then
+      #       tar -czf assets/workflows-backup.tar.gz -C repo-src .github
+      #       echo "workflow 文件打包完成："
+      #       tar -tzf assets/workflows-backup.tar.gz
+      #     else
+      #       echo "未发现 .github/workflows 目录，跳过打包"
+      #     fi
 
       - name: 上传到 Actions-OpenWrt 作为备份
         uses: softprops/action-gh-release@v3.0.2
@@ -43,111 +43,111 @@ jobs:
           files: assets/*
           fail_on_unmatched_files: true
 
-  reset:
-    needs: backup
-    runs-on: ubuntu-latest
-    steps:
-      - name: 检查备份是否存在，不存在则拒绝执行
-        env:
-          GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
-        run: |
-          gh release view openwrt-Cache --repo hong0980/Actions-OpenWrt || {
-            echo "::error::未找到 openwrt-Cache 备份，禁止执行 reset！"
-            exit 1
-          }
+  # reset:
+  #   needs: backup
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: 检查备份是否存在，不存在则拒绝执行
+  #       env:
+  #         GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
+  #       run: |
+  #         gh release view openwrt-Cache --repo hong0980/Actions-OpenWrt || {
+  #           echo "::error::未找到 openwrt-Cache 备份，禁止执行 reset！"
+  #           exit 1
+  #         }
 
-      - name: 删除所有 release 和 tag
-        env:
-          GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
-        run: |
-          gh release list --repo hong0980/OpenWrt-Cache --limit 1000 \
-            --json tagName --jq '.[].tagName' | \
-          while IFS= read -r tag; do
-            echo "删除 release/tag: $tag"
-            gh release delete "$tag" --repo hong0980/OpenWrt-Cache --yes --cleanup-tag || \
-              echo "⚠️ 删除 $tag 失败（可能仓库已空或 tag 不存在），忽略继续"
-          done
+  #     - name: 删除所有 release 和 tag
+  #       env:
+  #         GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
+  #       run: |
+  #         gh release list --repo hong0980/OpenWrt-Cache --limit 1000 \
+  #           --json tagName --jq '.[].tagName' | \
+  #         while IFS= read -r tag; do
+  #           echo "删除 release/tag: $tag"
+  #           gh release delete "$tag" --repo hong0980/OpenWrt-Cache --yes --cleanup-tag || \
+  #             echo "⚠️ 删除 $tag 失败（可能仓库已空或 tag 不存在），忽略继续"
+  #         done
 
-          git clone --depth=1 https://x-access-token:${GH_TOKEN}@github.com/hong0980/OpenWrt-Cache.git repo-tags 2>/dev/null || {
-            echo "仓库为空或克隆失败，跳过裸 tag 清理"
-            exit 0
-          }
-          cd repo-tags
-          git fetch --tags 2>/dev/null || true
-          for t in $(git tag 2>/dev/null); do
-            git push --delete origin "$t" || true
-          done
+  #         git clone --depth=1 https://x-access-token:${GH_TOKEN}@github.com/hong0980/OpenWrt-Cache.git repo-tags 2>/dev/null || {
+  #           echo "仓库为空或克隆失败，跳过裸 tag 清理"
+  #           exit 0
+  #         }
+  #         cd repo-tags
+  #         git fetch --tags 2>/dev/null || true
+  #         for t in $(git tag 2>/dev/null); do
+  #           git push --delete origin "$t" || true
+  #         done
 
-      - name: 清空 git 提交历史，只留一个初始 commit
-        env:
-          GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
-        run: |
-          git clone https://x-access-token:${GH_TOKEN}@github.com/hong0980/OpenWrt-Cache.git repo
-          cd repo
+  #     - name: 清空 git 提交历史，只留一个初始 commit
+  #       env:
+  #         GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
+  #       run: |
+  #         git clone https://x-access-token:${GH_TOKEN}@github.com/hong0980/OpenWrt-Cache.git repo
+  #         cd repo
 
-          git config user.email "actions@github.com"
-          git config user.name "github-actions[bot]"
+  #         git config user.email "actions@github.com"
+  #         git config user.name "github-actions[bot]"
 
-          default_branch=$(git remote show origin | awk '/HEAD branch/ {print $NF}')
-          echo "默认分支: $default_branch"
+  #         default_branch=$(git remote show origin | awk '/HEAD branch/ {print $NF}')
+  #         echo "默认分支: $default_branch"
 
-          git checkout --orphan __init__
-          git rm -rf . 2>/dev/null || true
-          echo "# OpenWrt-Cache" > README.md
-          git add README.md
-          git commit -m "Initial commit"
+  #         git checkout --orphan __init__
+  #         git rm -rf . 2>/dev/null || true
+  #         echo "# OpenWrt-Cache" > README.md
+  #         git add README.md
+  #         git commit -m "Initial commit"
 
-          git branch -D "$default_branch" 2>/dev/null || true
-          git branch -m "$default_branch"
-          git push --force origin "$default_branch"
+  #         git branch -D "$default_branch" 2>/dev/null || true
+  #         git branch -m "$default_branch"
+  #         git push --force origin "$default_branch"
 
-          for b in $(git branch -r | grep -v "origin/$default_branch\|origin/HEAD" | sed 's#origin/##'); do
-            git push origin --delete "$b" || true
-          done
+  #         for b in $(git branch -r | grep -v "origin/$default_branch\|origin/HEAD" | sed 's#origin/##'); do
+  #           git push origin --delete "$b" || true
+  #         done
 
-  restore:
-    needs: reset
-    runs-on: ubuntu-latest
-    steps:
-      - name: 从 Actions-OpenWrt 下载备份附件
-        env:
-          GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
-        run: |
-          mkdir -p assets
-          gh release download openwrt-Cache \
-            --repo hong0980/Actions-OpenWrt \
-            --dir assets \
-            --pattern '*'
-          echo "下载到的文件数："
-          ls -la assets | wc -l
+  # restore:
+  #   needs: reset
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: 从 Actions-OpenWrt 下载备份附件
+  #       env:
+  #         GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
+  #       run: |
+  #         mkdir -p assets
+  #         gh release download openwrt-Cache \
+  #           --repo hong0980/Actions-OpenWrt \
+  #           --dir assets \
+  #           --pattern '*'
+  #         echo "下载到的文件数："
+  #         ls -la assets | wc -l
 
-      - name: 恢复 workflow 文件到 OpenWrt-Cache 仓库
-        env:
-          GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
-        run: |
-          if [ -f assets/workflows-backup.tar.gz ]; then
-            git clone https://x-access-token:${GH_TOKEN}@github.com/hong0980/OpenWrt-Cache.git repo-restore
-            tar -xzf assets/workflows-backup.tar.gz -C repo-restore
-            cd repo-restore
+  #     - name: 恢复 workflow 文件到 OpenWrt-Cache 仓库
+  #       env:
+  #         GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
+  #       run: |
+  #         if [ -f assets/workflows-backup.tar.gz ]; then
+  #           git clone https://x-access-token:${GH_TOKEN}@github.com/hong0980/OpenWrt-Cache.git repo-restore
+  #           tar -xzf assets/workflows-backup.tar.gz -C repo-restore
+  #           cd repo-restore
 
-            git config user.email "actions@github.com"
-            git config user.name "github-actions[bot]"
+  #           git config user.email "actions@github.com"
+  #           git config user.name "github-actions[bot]"
 
-            git add .github
-            git status --porcelain | grep -q . && \
-              git commit -m "Restore workflow files" && \
-              git push origin HEAD || \
-              echo "没有变化需要提交"
-          else
-            echo "未找到 workflows-backup.tar.gz，跳过 workflow 恢复"
-          fi
+  #           git add .github
+  #           git status --porcelain | grep -q . && \
+  #             git commit -m "Restore workflow files" && \
+  #             git push origin HEAD || \
+  #             echo "没有变化需要提交"
+  #         else
+  #           echo "未找到 workflows-backup.tar.gz，跳过 workflow 恢复"
+  #         fi
 
-      - name: 在 OpenWrt-Cache 重新创建 Cache release
-        uses: softprops/action-gh-release@v3.0.2
-        with:
-          repository: hong0980/OpenWrt-Cache
-          token: ${{ secrets.PERSONAL_TOKEN }}
-          tag_name: Cache
-          name: Cache
-          files: assets/*
-          fail_on_unmatched_files: true
+  #     - name: 在 OpenWrt-Cache 重新创建 Cache release
+  #       uses: softprops/action-gh-release@v3.0.2
+  #       with:
+  #         repository: hong0980/OpenWrt-Cache
+  #         token: ${{ secrets.PERSONAL_TOKEN }}
+  #         tag_name: Cache
+  #         name: Cache
+  #         files: assets/*
+  #         fail_on_unmatched_files: true

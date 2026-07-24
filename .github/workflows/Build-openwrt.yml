@@ -10,7 +10,13 @@ on:
         default: 'openwrt-24.10'
         required: true
         type: choice
-        options: [ master, openwrt-25.12, openwrt-24.10, openwrt-23.05, openwrt-21.02, main ]
+        options:
+          - master
+          - openwrt-25.12
+          - openwrt-24.10
+          # - openwrt-23.05
+          # - openwrt-21.02
+          - main
 
       target:
         description: '选择机型 (自定义请选 "custom")'
@@ -255,7 +261,7 @@ jobs:
 
     - name: 筛选固件
       id: organize
-      if: steps.compile.outcome == 'success' && !cancelled()
+      # if: steps.compile.outcome == 'success' && !cancelled()
       run: |
         echo "======================="
         echo "磁盘使用情况:"
