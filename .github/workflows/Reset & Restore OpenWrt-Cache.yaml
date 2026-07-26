@@ -38,7 +38,7 @@ jobs:
         with:
           repository: hong0980/Actions-OpenWrt
           token: ${{ secrets.PERSONAL_TOKEN }}
-          tag_name: openwrt-Cache
+          tag_name: OpenWrt-Cache
           name: OpenWrt-Cache
           files: assets/*
           fail_on_unmatched_files: true
