@@ -246,9 +246,7 @@ jobs:
       if: steps.compile.outcome == 'failure' && !cancelled()
       run: |
         sf="${CACHE_NAME%%-*}-${REPO_BRANCH#*-}-$(TZ=UTC-8 date +%m-%d)"
-        cd ../firmware
-        md5sum * >$sf-$TARGET_DEVICE-md5-config.txt 2>/dev/null || true
-        sed '/^$/d' ../openwrt/.config >>$sf-$TARGET_DEVICE-md5-config.txt || true
+        sed '/^$/d' openwrt/.config >> firmware/$sf-$TARGET_DEVICE-md5-config.txt || true
         echo "STRDATE=$(TZ=UTC-8 date +%Y-%m-%d)" >>$GITHUB_ENV
         echo "UPLOAD_RELEASE=true" >>$GITHUB_ENV
 
