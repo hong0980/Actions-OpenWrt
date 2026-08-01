@@ -249,9 +249,13 @@ jobs:
       if: steps.deploy.outcome == 'success' && !cancelled()
       run: |
         cd openwrt
-        export WGET_OPTIONS="--timeout=20 --tries=3"
-        timeout 10m make package/download -j$(nproc)
-        find dl -size -1024c -exec ls -l {} \;
+        export DOWNLOAD_TOOL_CUSTOM="wget"
+        export WGET_OPTIONS="--timeout=20 --tries=3 --read-timeout=30"
+        timeout --signal=TERM --kill-after=30s 10m \
+          make package/download -j$(nproc) || \
+          echo "::warning::下载超过10分钟，进入编译阶段"
+
+        find dl -size -1024c -exec ls -lh {} \;
         find dl -size -1024c -exec rm -f {} \;
 
     - name: 固件编译
