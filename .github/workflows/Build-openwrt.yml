@@ -249,7 +249,8 @@ jobs:
       if: steps.deploy.outcome == 'success' && !cancelled()
       run: |
         cd openwrt
-        make package/download -j$(nproc)
+        export WGET_OPTIONS="--timeout=20 --tries=3"
+        timeout 10m make package/download -j$(nproc)
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
