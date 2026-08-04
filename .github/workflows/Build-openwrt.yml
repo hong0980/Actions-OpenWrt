@@ -7,7 +7,7 @@ on:
     inputs:
       branch:
         description: '选择的分支：'
-        default: 'openwrt-24.10'
+        default: 'openwrt-25.10'
         required: true
         type: choice
         options:
@@ -255,6 +255,8 @@ jobs:
           make package/download -j$(nproc) || \
           echo "::warning::下载超过10分钟，进入编译阶段"
 
+        find dl -name "*.dl" -delete
+        find dl -name "*.hash" -delete
         find dl -size -1024c -exec ls -lh {} \;
         find dl -size -1024c -exec rm -f {} \;
 

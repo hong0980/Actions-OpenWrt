@@ -1,9 +1,20 @@
 name: Build-Coolsnowwolf
-run-name: coolsnowwolf-${{ inputs.target == 'custom' && inputs.custom_target || inputs.target }}
+run-name: coolsnowwolft-${{ inputs.branch }}-${{ inputs.target == 'custom' && inputs.custom_target || inputs.target }}
 
 on:
   workflow_dispatch:
     inputs:
+      branch:
+        description: '选择的分支：'
+        default: 'openwrt-25.10'
+        required: true
+        type: choice
+        options:
+          - openwrt-25.12
+          - openwrt-24.10
+          - openwrt-23.05
+          - master
+
       target:
         description: '选择机型 (自定义请选 "custom")'
         default: 'x86_64'
@@ -53,7 +64,7 @@ jobs:
   lean_openwrt:
     runs-on: ubuntu-latest
     if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
-    name: coolsnowwolf-${{github.event.inputs.target == 'custom' && github.event.inputs.custom_target || github.event.inputs.target}}
+    name: coolsnowwolf-${{github.event.inputs.branch}}-${{github.event.inputs.target == 'custom' && github.event.inputs.custom_target || github.event.inputs.target}}
 
     permissions:
       contents: write
@@ -64,6 +75,7 @@ jobs:
       IP: ${{github.event.inputs.ip}}
       DEPENDS: ${{github.event.inputs.depends}}
       PARTSIZE: ${{github.event.inputs.partsize}}
+      REPO_BRANCH: ${{github.event.inputs.branch}}
       FREE_DISK: ${{github.event.inputs.free_disk}}
       TARGET_DEVICE: ${{github.event.inputs.target == 'custom' && github.event.inputs.custom_target || github.event.inputs.target}}
 
@@ -233,8 +245,15 @@ jobs:
       if: steps.deploy.outcome == 'success' && !cancelled()
       run: |
         cd openwrt
-        make package/download -j$(nproc)
-        find dl -size -1024c -exec ls -l {} \;
+        export DOWNLOAD_TOOL_CUSTOM="wget"
+        export WGET_OPTIONS="--timeout=20 --tries=3 --read-timeout=30"
+        timeout --signal=TERM --kill-after=30s 10m \
+          make package/download -j$(nproc) || \
+          echo "::warning::下载超过10分钟，进入编译阶段"
+
+        find dl -name "*.dl" -delete
+        find dl -name "*.hash" -delete
+        find dl -size -1024c -exec ls -lh {} \;
         find dl -size -1024c -exec rm -f {} \;
 
     - name: 固件编译
