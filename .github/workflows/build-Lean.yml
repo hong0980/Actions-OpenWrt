@@ -70,7 +70,6 @@ jobs:
       contents: write
 
     env:
-      REPO_BRANCH: 'master'
       TZ: Asia/Shanghai
       IP: ${{github.event.inputs.ip}}
       DEPENDS: ${{github.event.inputs.depends}}
