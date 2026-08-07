@@ -1,10 +1,17 @@
 name: Build-openwrt
-run-name: openwrt-${{ inputs.branch }}-${{ inputs.target == 'custom' && inputs.custom_target || inputs.target }}
+run-name: openwrt-${{ inputs.branch }}-${{ inputs.target == 'custom' && inputs.custom_target || inputs.target }}-${{inputs.version}}
 # run-name: openwrt-${{ inputs.branch == 'openwrt-25.12' && '25.12' || inputs.branch == 'openwrt-24.10' && '24.10' || inputs.branch == 'openwrt-23.05' && '23.05' || inputs.branch == 'openwrt-21.02' && '21.02' || inputs.branch }}-${{ inputs.target == 'custom' && inputs.custom_target || inputs.target }}
 
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: '版本'
+        default: 'full'
+        required: true
+        type: choice
+        options: ['full', 'slim']
+
       branch:
         description: '选择的分支：'
         default: 'openwrt-25.10'
