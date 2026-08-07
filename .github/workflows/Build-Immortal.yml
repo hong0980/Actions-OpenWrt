@@ -82,6 +82,7 @@ jobs:
       REPO: 'immortalwrt'
       TZ: Asia/Shanghai
       IP: ${{github.event.inputs.ip}}
+      VERSION: ${{github.event.inputs.version}}
       DEPENDS: ${{github.event.inputs.depends}}
       PARTSIZE: ${{github.event.inputs.partsize}}
       REPO_BRANCH: ${{github.event.inputs.branch}}
