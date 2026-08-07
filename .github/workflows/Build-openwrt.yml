@@ -74,7 +74,7 @@ jobs:
   openwrt:
     runs-on: ubuntu-latest
     if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
-    name: openwrt-${{github.event.inputs.branch}}-${{github.event.inputs.target == 'custom' && github.event.inputs.custom_target || github.event.inputs.target}}
+    name: openwrt-${{github.event.inputs.branch}}-${{github.event.inputs.target == 'custom' && github.event.inputs.custom_target || github.event.inputs.target}}-${{github.event.inputs.version}}
 
     permissions:
       contents: write
