@@ -370,8 +370,8 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         gh release list --repo "${{ github.repository }}" --limit 100 \
-          --json tagName,createdAt \
-          --jq '[.[] | select(.tagName | endswith("-immortalwrt"))] | sort_by(.createdAt) | reverse | .[15:] | .[].tagName' |
+          --json tagName \
+          --jq '[.[] | select(.tagName | endswith("-immortalwrt"))] | .[15:] | .[].tagName' |
         while IFS= read -r tag; do
           echo "Deleting release and tag: $tag"
           gh release delete "$tag" --repo "${{ github.repository }}" --cleanup-tag -y
