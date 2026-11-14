@@ -62,14 +62,6 @@ on:
         options: [ default, ImmortalWrt ]
         required: false
 
-env:
-  UPLOAD_RELEASE: true
-  UPLOAD_BIN_DIR: false
-  UPLOAD_PACKAGES: true
-  UPLOAD_SYSUPGRADE: true
-  UPLOAD_WETRANSFER: false
-  UPLOAD_COWTRANSFER: false
-
 jobs:
   openwrt:
     runs-on: ubuntu-24.04
@@ -80,6 +72,13 @@ jobs:
       contents: write
 
     env:
+      UPLOAD_RELEASE: true
+      UPLOAD_BIN_DIR: false
+      UPLOAD_PACKAGES: true
+      UPLOAD_SYSUPGRADE: true
+      UPLOAD_WETRANSFER: false
+      UPLOAD_COWTRANSFER: false
+      CACHE_DIR: ''
       REPO: 'openwrt'
       TZ: Asia/Shanghai
       IP: ${{github.event.inputs.ip}}
@@ -180,7 +179,6 @@ jobs:
         mkdir -p firmware output
 
     - name: 部署
-      id: deploy
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
@@ -192,13 +190,31 @@ jobs:
       if: env.CACHE_ACTIONS == 'true' && !cancelled()
       run: cd openwrt && make -j$(nproc) toolchain/compile || make -j1 V=s toolchain/compile
 
+    - name: 下载软件包
+      continue-on-error: true
+      run: |
+        cd openwrt
+        timeout --signal=TERM --kill-after=30s 10m \
+          make package/download -j$(nproc) || \
+          echo "::warning::下载超过10分钟，进入编译阶段"
+
+        find dl -name "*.dl" -delete
+        find dl -name "*.hash" -delete
+        find dl -size -1024c -exec ls -lh {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: 固件编译
+      id: compile
+      continue-on-error: true
+      run: cd openwrt && make -j$(nproc) || make -j1 V=s
+
     - name: 保存 Cache
       if: steps.tools.conclusion == 'success' && !cancelled()
       continue-on-error: true
       run: |
         cd openwrt
         shopt -s nullglob
-        TAR_ARGS=(staging_dir/host* staging_dir/tool-*)
+        TAR_ARGS=(staging_dir/host staging_dir/toolchain* ${CACHE_DIR})
         [[ -d ".ccache" && $(du -s .ccache | cut -f1) -gt 0 ]] && TAR_ARGS+=(".ccache")
 
         if tar -I zstdmt -cf "../output/$CACHE_NAME-cache.tzst" "${TAR_ARGS[@]}"; then
@@ -237,26 +253,6 @@ jobs:
         tag_name: openwrt-Cache
         token: ${{ secrets.GITHUB_TOKEN }}
         name: ${{ env.EMOJI }} openwrt-Cache ${{ env.EMOJI }}
-
-    - name: 下载软件包
-      continue-on-error: true
-      if: steps.deploy.outcome == 'success' && !cancelled()
-      run: |
-        cd openwrt
-        timeout --signal=TERM --kill-after=30s 10m \
-          make package/download -j$(nproc) || \
-          echo "::warning::下载超过10分钟，进入编译阶段"
-
-        find dl -name "*.dl" -delete
-        find dl -name "*.hash" -delete
-        find dl -size -1024c -exec ls -lh {} \;
-        find dl -size -1024c -exec rm -f {} \;
-
-    - name: 固件编译
-      id: compile
-      continue-on-error: true
-      if: steps.deploy.outcome == 'success' && !cancelled()
-      run: cd openwrt && make -j$(nproc) || make -j1 V=s
 
     - name: 筛选固件
       id: organize
@@ -306,7 +302,7 @@ jobs:
 
     - name: Firmware 上传到 Release
       if: (env.upload_firmware == 'true' || env.UPLOAD_RELEASE == 'true') && !cancelled()
-      uses: softprops/action-gh-release@v3.0.2
+      uses: softprops/action-gh-release@v3.0.4
       with:
         files: firmware/*
         body: openwrt-firmware
