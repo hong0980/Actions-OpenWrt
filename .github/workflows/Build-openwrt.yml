@@ -254,7 +254,6 @@ jobs:
       run: cd openwrt && make -j$(nproc) || make -j1 V=s
 
     - name: 筛选固件
-      id: organize
       if: steps.compile.outcome == 'success' && !cancelled()
       run: |
         echo "======================="
@@ -278,19 +277,19 @@ jobs:
         echo "FIRMWARE=$PWD" >>$GITHUB_ENV
         echo "STRDATE=$(TZ=UTC-8 date +%Y-%m-%d)" >>$GITHUB_ENV
 
-    - name: 上传 Bin
-      uses: actions/upload-artifact@v7.0.1
-      if: steps.organize.conclusion == 'success' && env.UPLOAD_BIN_DIR == 'true' && !cancelled()
-      with:
-        path: openwrt/bin
-        name: OpenWrt-${{env.TARGET_DEVICE}}-bin
-
     - name: 上传 Packages
       uses: actions/upload-artifact@v7.0.1
       if: env.upload_packages == 'true' && env.UPLOAD_PACKAGES == 'true' && !cancelled()
       with:
         path: firmware/*packages.tar.gz
         name: OpenWrt-${{env.TARGET_DEVICE}}-package
+
+    - name: 上传 Bin
+      uses: actions/upload-artifact@v7.0.1
+      if: env.upload_firmware == 'true' && env.UPLOAD_BIN_DIR == 'true' && !cancelled()
+      with:
+        path: openwrt/bin
+        name: OpenWrt-${{env.TARGET_DEVICE}}-bin
 
     - name: 上传 Firmware
       uses: actions/upload-artifact@v7.0.1
@@ -300,7 +299,7 @@ jobs:
         name: OpenWrt-${{env.TARGET_DEVICE}}-firmware
 
     - name: Firmware 上传到 Release
-      if: (env.upload_firmware == 'true' || env.UPLOAD_RELEASE == 'true') && !cancelled()
+      if: env.upload_firmware == 'true' && env.UPLOAD_RELEASE == 'true' && !cancelled()
       uses: softprops/action-gh-release@v3.0.4
       with:
         files: firmware/*
